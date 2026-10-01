@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="研股手记"
+        android:label="未名溪谷"
+        android:allowBackup="false"
         android:name="${applicationName}"
         android:icon="@drawable/research_icon">
         <activity

@@ -4,6 +4,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'domain.dart';
 import 'storage.dart';
 import 'forms.dart';
+import 'research.dart';
+import 'services.dart';
+import 'credentials.dart';
+import 'research_widgets.dart';
 
 void main() => runApp(const LianghuaApp());
 
@@ -14,12 +18,21 @@ String percentage(double? v) =>
     v == null ? '无法计算' : '${(v * 100).toStringAsFixed(1)}%';
 
 class LianghuaApp extends StatelessWidget {
-  const LianghuaApp({super.key, this.store, this.fontFamily});
+  const LianghuaApp(
+      {super.key,
+      this.store,
+      this.fontFamily,
+      this.market,
+      this.ai,
+      this.credentials});
   final WorkspaceStore? store;
+  final MarketService? market;
+  final DeepSeekService? ai;
+  final CredentialStore? credentials;
   final String? fontFamily;
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: '研股手记',
+        title: '未名溪谷',
         debugShowCheckedModeBanner: false,
         locale: const Locale('zh', 'CN'),
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -36,13 +49,18 @@ class LianghuaApp extends StatelessWidget {
                 titleLarge: TextStyle(fontWeight: FontWeight.w700, color: ink)),
             inputDecorationTheme: const InputDecorationTheme(
                 border: OutlineInputBorder(), isDense: true)),
-        home: WorkspaceScreen(store: store),
+        home: WorkspaceScreen(
+            store: store, market: market, ai: ai, credentials: credentials),
       );
 }
 
 class WorkspaceScreen extends StatefulWidget {
-  const WorkspaceScreen({super.key, this.store});
+  const WorkspaceScreen(
+      {super.key, this.store, this.market, this.ai, this.credentials});
   final WorkspaceStore? store;
+  final MarketService? market;
+  final DeepSeekService? ai;
+  final CredentialStore? credentials;
   @override
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
 }
@@ -52,6 +70,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   WorkspaceData? _data;
   String? _error;
   bool _saving = false;
+  bool _networkBusy = false;
+  late final _market = widget.market ?? MarketService();
+  late final _ai = widget.ai ?? DeepSeekService();
+  late final _credentials = widget.credentials ?? SecureCredentialStore();
   int _page = 0;
   double _stress = .3;
   final titles = const ['研究总览', '公司研究', '账户风控', '复查日志'];
@@ -94,6 +116,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     if (_saving) return;
     setState(() => _saving = true);
     try {
+      WorkspaceData.decode(value.encode());
       await _store!.save(value);
       if (mounted) {
         setState(() => _data = value);
@@ -147,9 +170,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     return Scaffold(
       appBar: AppBar(
           title:
-              const Text('研股手记', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Text('未名溪谷', style: TextStyle(fontWeight: FontWeight.w700)),
           actions: [
-            if (_saving)
+            if (_saving || _networkBusy)
               const Padding(
                   padding: EdgeInsets.all(16),
                   child: SizedBox(
@@ -157,11 +180,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2))),
             PopupMenuButton<String>(
-                enabled: !_saving,
+                enabled: !_saving && !_networkBusy,
                 tooltip: '数据与设置',
                 onSelected: _action,
                 itemBuilder: (_) => const [
                       PopupMenuItem(value: 'account', child: Text('账户设置')),
+                      PopupMenuItem(
+                          value: 'deepseek', child: Text('DeepSeek 本地设置')),
                       PopupMenuItem(value: 'export', child: Text('导出备份')),
                       PopupMenuItem(value: 'import', child: Text('导入备份')),
                       PopupMenuItem(value: 'empty', child: Text('新建空白工作区')),
@@ -193,7 +218,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                       icon: Icon(icons[i]), label: Text(titles[i])))),
         Expanded(
             child: AbsorbPointer(
-                absorbing: _saving,
+                absorbing: _saving || _networkBusy,
                 child: ListView(
                     padding: EdgeInsets.all(desktop ? 28 : 16),
                     children: [
@@ -233,7 +258,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                                     if (_page == 3) ..._reviews(data),
                                     const SizedBox(height: 24),
                                     const Text(
-                                        'v0.1 本地原型 · 无实时行情 · 未接入 AI · 无自动下单或自动同步',
+                                        'v0.2 · 手动更新日线 · DeepSeek 草稿需人工核验 · JSON 备份跨端迁移',
                                         style: TextStyle(
                                             fontSize: 12,
                                             color: Color(0xFF647A80))),
@@ -361,6 +386,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               label: const Text('复制 AI 分析模板'))
         ]),
         const SizedBox(height: 16),
+        _watchlist(d),
+        const SizedBox(height: 12),
+        OutlinedButton(
+            onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => FinancialComparisonDialog(data: d)),
+            child: const Text('同期间财务比较')),
+        const SizedBox(height: 16),
         if (d.studies.isEmpty) _notice('还没有研究卡。先添加一家公司，并记录你为什么想研究它。'),
         for (final s in d.studies) ...[
           _panel(
@@ -376,6 +409,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 _studySection('来源、报告期、披露日期与单位', s.source),
                 Text('录入更新：${s.updatedAt}',
                     style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 12),
+                Wrap(spacing: 12, runSpacing: 8, children: [
+                  OutlinedButton(
+                      onPressed: () => _evidence(s),
+                      child: Text(
+                          '资料与财务（${d.sources.where((e) => e.studyId == s.id).length} 段原文）')),
+                  FilledButton.tonal(
+                      onPressed: d.isDemo ? null : () => _draft(s),
+                      child: const Text('生成 AI 草稿')),
+                ]),
               ],
               trailing: IconButton(
                   tooltip: '编辑研究卡',
@@ -399,7 +442,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               onPressed: () => _holdingDialog(),
               icon: const Icon(Icons.add),
               label: const Text('新增持仓')),
-          OutlinedButton(onPressed: _accountDialog, child: const Text('账户设置'))
+          OutlinedButton(onPressed: _accountDialog, child: const Text('账户设置')),
+          if (!d.isDemo)
+            OutlinedButton(
+                onPressed: _applyQuotes, child: const Text('应用同日行情到持仓')),
         ]),
         const SizedBox(height: 16),
         _metrics(d),
@@ -500,6 +546,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     switch (value) {
       case 'account':
         await _accountDialog();
+      case 'deepseek':
+        await showDialog<void>(
+            context: context,
+            builder: (_) =>
+                DeepSeekSettingsDialog(store: _credentials, service: _ai));
       case 'export':
         await _backupDialog(false);
       case 'import':
@@ -658,6 +709,186 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 输出：1.主营业务与财务事实；2.支持理由与未来一年验证指标；3.反面证据；4.缺失信息；5.需要重新评估的条件。
 每项事实注明原始来源、页码、报告期、披露日期与单位。事实与推测分开，不编造缺失数据；无法判断时明确说明。数字计算必须人工或程序复核。不要生成保证收益或自动买卖指令。
 待提供资料：股票代码、主营业务、近三年和最新财报、现金流、债务、估值及重大公告。'''));
-    _message('分析模板已复制；当前应用尚未接入 AI');
+    _message('分析模板已复制；也可在真实研究卡中使用 DeepSeek 草稿');
+  }
+
+  Widget _watchlist(WorkspaceData d) =>
+      _panel('真实自选 · ${d.watchlist.length}/10 家', [
+        if (d.isDemo) const Text('当前是虚构演示。请先导出所需数据，并从菜单新建空白工作区后添加真实公司。'),
+        if (!d.isDemo) ...[
+          Wrap(spacing: 12, runSpacing: 8, children: [
+            FilledButton.icon(
+                onPressed: d.watchlist.length >= 10 ? null : _addCompany,
+                icon: const Icon(Icons.add),
+                label: const Text('添加真实公司')),
+            OutlinedButton(
+                onPressed: d.watchlist.isEmpty ? null : _refreshQuotes,
+                child: const Text('更新自选日线')),
+          ]),
+          const SizedBox(height: 12),
+          const Text('使用东方财富未复权收盘价。北京时间 17:00 前只取之前已完成的交易日；不自动改变持仓估值。'),
+          for (final c in d.watchlist)
+            Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text('${c.name} · ${c.symbol} · ${c.industry}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold)),
+                            Text(c.close == null
+                                ? '尚无行情'
+                                : '${c.close!.toStringAsFixed(2)} 元 · 交易日 ${c.tradeDate}（距今 ${DateTime.now().toUtc().add(const Duration(hours: 8)).difference(DateTime.parse('${c.tradeDate}T00:00:00Z')).inDays} 个自然日）'),
+                            if (c.quoteFetchedAt != null)
+                              Text('获取：${c.quoteFetchedAt} · 旧交易日不能代表当前行情'),
+                            if (c.error.isNotEmpty)
+                              Text('上次更新失败：${c.error}',
+                                  style: const TextStyle(color: Colors.red)),
+                            Material(
+                                color: Colors.transparent,
+                                child: ExpansionTile(
+                                    tilePadding: EdgeInsets.zero,
+                                    title: const Text('查看来源'),
+                                    children: [
+                                      SelectableText(
+                                          '公司信息：${c.source}\n获取：${c.fetchedAt}\n日线：${c.quoteSource ?? '尚未获取'}')
+                                    ])),
+                          ])),
+                      IconButton(
+                          tooltip: '移除自选',
+                          icon: const Icon(Icons.close),
+                          onPressed: () async {
+                            if (await _confirm(
+                                '移除自选？', '移除 ${c.name}，研究卡、来源与持仓会保留。')) {
+                              await _save(_data!.copyWith(
+                                  watchlist: _data!.watchlist
+                                      .where((v) => v.id != c.id)
+                                      .toList()));
+                            }
+                          }),
+                    ])),
+        ]
+      ]);
+  Future<void> _addCompany() async {
+    final c = await showDialog<WatchCompany>(
+        context: context,
+        builder: (_) => CompanyLookupDialog(service: _market));
+    if (c == null || !mounted) return;
+    if (_data!.watchlist.any((v) => v.symbol == c.symbol)) {
+      _message('公司已在自选中');
+      return;
+    }
+    final studies = [..._data!.studies];
+    if (!studies.any((s) => s.code == c.code)) {
+      studies.add(Study(
+          id: newId(),
+          code: c.code,
+          name: c.name,
+          business: '',
+          thesis: '',
+          counterEvidence: '',
+          reviewCondition: '',
+          source: '公司名称和行业：${c.source}\n获取：${c.fetchedAt}',
+          updatedAt: dateToday()));
+    }
+    await _save(
+        _data!.copyWith(watchlist: [..._data!.watchlist, c], studies: studies));
+  }
+
+  Future<void> _refreshQuotes() async {
+    setState(() => _networkBusy = true);
+    final updated = <WatchCompany>[];
+    try {
+      for (final c in _data!.watchlist) {
+        try {
+          updated.add(await _market.quote(c));
+        } on ServiceFailure catch (e) {
+          updated.add(c.failed(
+              '${DateTime.now().toUtc().toIso8601String()} · ${e.message}'));
+        } catch (_) {
+          updated.add(c.failed('行情校验失败，保留旧价格'));
+        }
+      }
+      if (mounted) await _save(_data!.copyWith(watchlist: updated));
+    } finally {
+      if (mounted) setState(() => _networkBusy = false);
+    }
+  }
+
+  Future<void> _applyQuotes() async {
+    try {
+      final next = applyPortfolioQuotes(_data!);
+      if (!await _confirm('更新全部持仓估值？',
+          '全部 ${next.holdings.length} 项持仓使用 ${next.priceDate} 收盘价。可能是旧交易日，请核对后确认。')) {
+        return;
+      }
+      await _save(next.copyWith(reviews: [
+        ...next.reviews,
+        ReviewEntry(
+            id: newId(),
+            company: '账户估值',
+            createdAt: DateTime.now().toIso8601String(),
+            text:
+                '全部持仓统一更新至 ${next.priceDate} 的东方财富未复权收盘价。\n${next.watchlist.where((c) => next.holdings.any((h) => h.code == c.code)).map((c) => '${c.symbol} ${c.close} · 获取 ${c.quoteFetchedAt}\n${c.quoteSource}').join('\n')}')
+      ]));
+    } catch (e) {
+      _message('$e');
+    }
+  }
+
+  Future<void> _evidence(Study s) => showDialog<void>(
+      context: context,
+      builder: (_) => EvidenceDialog(
+          study: s,
+          sources: _data!.sources.where((e) => e.studyId == s.id).toList(),
+          financials:
+              _data!.financials.where((e) => e.studyId == s.id).toList(),
+          specialIndustry: _data!.watchlist
+              .any((c) => c.code == s.code && c.specialIndustry),
+          addSource: (e) async {
+            await _save(_data!.copyWith(sources: [..._data!.sources, e]));
+            return _data!.sources.any((v) => v.id == e.id);
+          },
+          addFinancial: (e) async {
+            await _save(_data!.copyWith(financials: [..._data!.financials, e]));
+            return _data!.financials.any((v) => v.id == e.id);
+          }));
+  Future<void> _draft(Study s) async {
+    final sources = _data!.sources.where((e) => e.studyId == s.id).toList();
+    final draft = await showDialog<ResearchDraft>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => DraftDialog(
+            study: s, sources: sources, store: _credentials, service: _ai));
+    if (draft == null || !mounted || draft.validate(sources).isNotEmpty) return;
+    final next = Study(
+        id: s.id,
+        code: s.code,
+        name: s.name,
+        business: draft.render('facts'),
+        thesis: draft.render('support'),
+        counterEvidence:
+            '${draft.render('counter')}\n\n缺失信息：\n${draft.render('missing')}',
+        reviewCondition: draft.render('review'),
+        source: sources
+            .map((e) =>
+                '[${e.id}] ${e.title} · ${e.period} · ${e.disclosedAt} · ${e.page} · ${e.unit}\n${e.url}')
+            .join('\n'),
+        updatedAt: dateToday());
+    await _save(_data!.copyWith(
+        studies: _data!.studies.map((v) => v.id == s.id ? next : v).toList(),
+        reviews: [
+          ..._data!.reviews,
+          ReviewEntry(
+              id: newId(),
+              company: s.name,
+              createdAt: DateTime.now().toIso8601String(),
+              text:
+                  '人工核验后接受 DeepSeek 草稿。\n旧研究卡：\n${s.toJson()}\n接受的新版本：\n${next.toJson()}')
+        ]));
   }
 }

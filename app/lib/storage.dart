@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'domain.dart';
 
@@ -10,8 +11,19 @@ abstract class WorkspaceStore {
 class LocalWorkspaceStore implements WorkspaceStore {
   LocalWorkspaceStore(this.directory);
   final Directory directory;
-  static Future<LocalWorkspaceStore> create() async =>
-      LocalWorkspaceStore(await getApplicationSupportDirectory());
+  static Future<LocalWorkspaceStore> create() async {
+    // ProductName changes in v0.2; retain the v0.1 storage identity explicitly.
+    if (Platform.isWindows) {
+      final root = Platform.environment['APPDATA'];
+      if (root == null || root.isEmpty) {
+        throw const FileSystemException('无法定位本地应用数据');
+      }
+      return LocalWorkspaceStore(
+          Directory('$root/com.lianghua/lianghua_assistant'));
+    }
+    return LocalWorkspaceStore(await getApplicationSupportDirectory());
+  }
+
   File get file =>
       File('${directory.path}${Platform.pathSeparator}workspace.json');
   File get backup => File('${file.path}.bak');
@@ -19,7 +31,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
   Future<WorkspaceData?> load() async {
     if (await file.exists()) {
       // Do not silently discard malformed user data or overwrite it with samples.
-      return WorkspaceData.decode(await file.readAsString());
+      final raw = await file.readAsString();
+      final data = WorkspaceData.decode(raw);
+      if ((jsonDecode(raw) as Map)['schemaVersion'] == 1) {
+        final legacy = File('${file.path}.v1.bak');
+        if (!await legacy.exists()) await file.copy(legacy.path);
+        await save(data);
+      }
+      return data;
     }
     if (await backup.exists()) {
       return WorkspaceData.decode(await backup.readAsString());

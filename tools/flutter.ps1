@@ -21,6 +21,15 @@ if ($taskNetwork.ProxyEnable -eq 1 -and $taskNetwork.ProxyServer -match '^(?<hos
 }
 Push-Location (Join-Path $taskRoot 'app')
 try {
+    $taskCmakeCache = Join-Path $taskRoot 'app/build/windows/x64/CMakeCache.txt'
+    if ($Task -in @('run-win','build-win') -and (Test-Path -LiteralPath $taskCmakeCache)) {
+        # A previous v0.1 build caches the old executable target. Drop only
+        # this generated cache file when upgrading, never application data.
+        $taskCachedConfig = Get-Content -LiteralPath $taskCmakeCache -Raw
+        if ($taskCachedConfig.Contains('TARGET_FILE_DIR:lianghua_assistant>')) {
+            Remove-Item -LiteralPath $taskCmakeCache
+        }
+    }
     $taskPubOutput = & $taskFlutter pub get 2>&1
     $taskPubStatus = $LASTEXITCODE
     $taskPubOutput | ForEach-Object { Write-Host $_ }
@@ -35,11 +44,18 @@ try {
                 New-Item -ItemType Junction -Path $taskLink -Value $taskPlugin.path | Out-Null
             }
         }
+        # The first pub get stopped before regenerating native registrants.
+        # A second pass with unchanged metadata preserves the junctions and
+        # completes Android / Windows registration for newly added plugins.
+        & $taskFlutter pub get
+        if ($LASTEXITCODE -ne 0) { throw 'Native plugin registration could not be regenerated.' }
     }
     switch ($Task) {
-        'run-win' { & $taskFlutter run -d windows --no-pub }
-        'build-win' { & $taskFlutter build windows --release --no-pub }
-        'build-android' { & $taskFlutter build apk --debug --no-pub }
+        # Builds must regenerate the native registrant for their own mode;
+        # --no-pub would retain debug-only integration_test in a release APK.
+        'run-win' { & $taskFlutter run -d windows }
+        'build-win' { & $taskFlutter build windows --release }
+        'build-android' { & $taskFlutter build apk --release }
         'check' {
             & $taskFlutter analyze --no-pub
             if ($LASTEXITCODE -ne 0) { throw 'Static analysis failed.' }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'research.dart';
 
 double _number(Map<String, dynamic> json, String key, {double minimum = 0}) {
   final value = json[key];
@@ -104,13 +105,19 @@ class WorkspaceData {
       required this.priceDate,
       required this.holdings,
       required this.studies,
-      required this.reviews});
+      required this.reviews,
+      this.watchlist = const [],
+      this.sources = const [],
+      this.financials = const []});
   final bool isDemo;
   final double cash, deposits, withdrawals, lossBudget;
   final String priceDate;
   final List<Holding> holdings;
   final List<Study> studies;
   final List<ReviewEntry> reviews;
+  final List<WatchCompany> watchlist;
+  final List<SourceExcerpt> sources;
+  final List<FinancialRecord> financials;
   double get principal => deposits - withdrawals;
   double get stocks => holdings.fold(0, (sum, h) => sum + h.marketValue);
   double get assets => cash + stocks;
@@ -143,7 +150,10 @@ class WorkspaceData {
           String? priceDate,
           List<Holding>? holdings,
           List<Study>? studies,
-          List<ReviewEntry>? reviews}) =>
+          List<ReviewEntry>? reviews,
+          List<WatchCompany>? watchlist,
+          List<SourceExcerpt>? sources,
+          List<FinancialRecord>? financials}) =>
       WorkspaceData(
           isDemo: isDemo ?? this.isDemo,
           cash: cash ?? this.cash,
@@ -153,9 +163,12 @@ class WorkspaceData {
           priceDate: priceDate ?? this.priceDate,
           holdings: holdings ?? this.holdings,
           studies: studies ?? this.studies,
-          reviews: reviews ?? this.reviews);
+          reviews: reviews ?? this.reviews,
+          watchlist: watchlist ?? this.watchlist,
+          sources: sources ?? this.sources,
+          financials: financials ?? this.financials);
   Map<String, dynamic> toJson() => {
-        'schemaVersion': 1,
+        'schemaVersion': 2,
         'isDemo': isDemo,
         'cash': cash,
         'deposits': deposits,
@@ -164,15 +177,21 @@ class WorkspaceData {
         'priceDate': priceDate,
         'holdings': holdings.map((h) => h.toJson()).toList(),
         'studies': studies.map((s) => s.toJson()).toList(),
-        'reviews': reviews.map((r) => r.toJson()).toList()
+        'reviews': reviews.map((r) => r.toJson()).toList(),
+        'watchlist': watchlist.map((r) => r.toJson()).toList(),
+        'sources': sources.map((r) => r.toJson()).toList(),
+        'financials': financials.map((r) => r.toJson()).toList()
       };
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
   factory WorkspaceData.decode(String raw) {
+    if (raw.length > 1000000) {
+      throw const FormatException('备份最多支持 1 MB 文本，请减少资料片段长度');
+    }
     final j = jsonDecode(raw);
     if (j is! Map<String, dynamic> ||
-        j['schemaVersion'] != 1 ||
+        ![1, 2].contains(j['schemaVersion']) ||
         j['isDemo'] is! bool) {
-      throw const FormatException('不是支持的备份格式（需要 schemaVersion 1）');
+      throw const FormatException('不是支持的备份格式（需要 schemaVersion 1 或 2）');
     }
     List<T> records<T>(String key, T Function(Map<String, dynamic>) parse) {
       final values = j[key];
@@ -206,7 +225,41 @@ class WorkspaceData {
         priceDate: priceDate,
         holdings: records('holdings', Holding.fromJson),
         studies: records('studies', Study.fromJson),
-        reviews: records('reviews', ReviewEntry.fromJson));
+        reviews: records('reviews', ReviewEntry.fromJson),
+        watchlist: j['schemaVersion'] == 1
+            ? []
+            : records('watchlist', WatchCompany.fromJson),
+        sources: j['schemaVersion'] == 1
+            ? []
+            : records('sources', SourceExcerpt.fromJson),
+        financials: j['schemaVersion'] == 1
+            ? []
+            : records('financials', FinancialRecord.fromJson));
+    if (result.isDemo && result.watchlist.isNotEmpty) {
+      throw const FormatException('真实自选不可混入演示工作区');
+    }
+    if (result.watchlist.length > 10 ||
+        result.watchlist.map((c) => c.symbol).toSet().length !=
+            result.watchlist.length) {
+      throw const FormatException('最多 10 家自选，且代码与交易所不可重复');
+    }
+    final studiesById = {for (final s in result.studies) s.id: s};
+    final sourcesById = {for (final s in result.sources) s.id: s};
+    for (final s in result.sources) {
+      if (!studiesById.containsKey(s.studyId)) {
+        throw const FormatException('资料片段没有对应研究卡');
+      }
+    }
+    for (final f in result.financials) {
+      final source = sourcesById[f.sourceId];
+      if (!studiesById.containsKey(f.studyId) ||
+          source == null ||
+          source.studyId != f.studyId ||
+          source.disclosedAt != f.disclosedAt ||
+          source.unit != f.unit) {
+        throw const FormatException('财务记录的研究卡、来源、披露日期或单位不一致');
+      }
+    }
     if (!result.assets.isFinite || !result.principal.isFinite) {
       throw const FormatException('账户数值超出可计算范围');
     }
@@ -289,3 +342,38 @@ class WorkspaceData {
 
 String dateToday() => DateTime.now().toIso8601String().substring(0, 10);
 String newId() => DateTime.now().microsecondsSinceEpoch.toString();
+
+// Apply quotes atomically, only when every holding has one unambiguous quote
+// from the same completed trading date. A partial refresh never changes risk.
+WorkspaceData applyPortfolioQuotes(WorkspaceData data) {
+  if (data.isDemo || data.holdings.isEmpty) {
+    throw const FormatException('需要真实持仓');
+  }
+  final prices = <Holding, WatchCompany>{};
+  for (final holding in data.holdings) {
+    final matches =
+        data.watchlist.where((c) => c.code == holding.code).toList();
+    if (matches.length != 1 ||
+        matches.single.close == null ||
+        matches.single.error.isNotEmpty) {
+      throw FormatException('${holding.code} 缺少唯一且有效的自选行情');
+    }
+    prices[holding] = matches.single;
+  }
+  final dates = prices.values.map((c) => c.tradeDate).toSet();
+  if (dates.length != 1) throw const FormatException('持仓行情的交易日期不一致，未更新账户估值');
+  if (dates.single!.compareTo(data.priceDate) < 0) {
+    throw const FormatException('行情早于账户当前估值日期，未回退价格');
+  }
+  return data.copyWith(
+      priceDate: dates.single,
+      holdings: data.holdings
+          .map((h) => Holding(
+              id: h.id,
+              code: h.code,
+              name: h.name,
+              industry: h.industry,
+              quantity: h.quantity,
+              price: prices[h]!.close!))
+          .toList());
+}
