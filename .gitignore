@@ -1,0 +1,16 @@
+.tools/
+app/.dart_tool/
+app/build/
+app/.flutter-plugins-dependencies
+app/android/local.properties
+app/android/.gradle/
+app/windows/flutter/ephemeral/
+app/*.iml
+app/.idea/
+artifacts/
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+key.properties
