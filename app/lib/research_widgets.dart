@@ -10,6 +10,8 @@ import 'services.dart';
 import 'reports.dart';
 import 'report_import.dart';
 import 'report_widgets.dart';
+import 'report_fetch.dart';
+import 'report_fetch_widgets.dart';
 import 'financial_widgets.dart';
 
 class CompanyLookupDialog extends StatefulWidget {
@@ -285,6 +287,8 @@ class EvidenceDialog extends StatefulWidget {
     required this.service,
     required this.addDocument,
     required this.allowAI,
+    this.reportFetcher,
+    this.exchange,
   });
   final Study study;
   final List<SourceExcerpt> sources;
@@ -293,6 +297,8 @@ class EvidenceDialog extends StatefulWidget {
   final Future<bool> Function(FinancialRecord) addFinancial;
   final bool specialIndustry;
   final bool allowAI;
+  final ReportFetchService? reportFetcher;
+  final String? exchange;
   final List<ReportDocument> documents;
   final PdfImportService importer;
   final ReportFileStore files;
@@ -493,6 +499,37 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
     }
   }
 
+  Future<void> fetchReports() async {
+    final exchange = widget.exchange;
+    if (exchange == null) {
+      setState(() => message = '请先通过真实自选核验公司与交易所，再自动查找财报');
+      return;
+    }
+    final saved = await showDialog<List<ReportDocument>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReportFetchDialog(
+        study: widget.study,
+        exchange: exchange,
+        service: widget.reportFetcher ?? ReportFetchService(),
+        importer: widget.importer,
+        existingDocuments: documents,
+        save: widget.addDocument,
+      ),
+    );
+    if (saved != null && mounted) {
+      setState(() {
+        for (final document in saved) {
+          if (!documents.any((d) => d.id == document.id)) {
+            documents.add(document);
+            sources.addAll(document.excerpts());
+          }
+        }
+        message = '本次已核验导入 ${saved.length} 份年报，可继续提取财务候选值';
+      });
+    }
+  }
+
   Future<void> relink(ReportDocument document) async {
     setState(() {
       busy = true;
@@ -553,6 +590,10 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
                           Text(
                             '${document.period} · ${document.pages.length} 页选页 · ${document.importedAt.substring(0, 10)}',
                           ),
+                          if (document.origin != null) ...[
+                            Text('巨潮公告 ${document.announcementId} · ${document.origin!.exchange} ${document.origin!.code} · ${document.origin!.isRevision ? '修订版' : '原披露'}'),
+                            SelectableText('披露 ${document.origin!.disclosedAt} · 下载出处：${document.origin!.downloadUrl}'),
+                          ],
                           SelectableText('SHA-256：${document.sha256}'),
                           Wrap(
                             spacing: 8,
@@ -636,6 +677,11 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
           OutlinedButton(
             onPressed: busy || !widget.allowAI ? null : importPdf,
             child: const Text('导入财报 PDF'),
+          ),
+          OutlinedButton.icon(
+            onPressed: busy || !widget.allowAI ? null : fetchReports,
+            icon: const Icon(Icons.download_outlined),
+            label: const Text('自动查找年报'),
           ),
           FilledButton(
             onPressed: busy ? null : source,

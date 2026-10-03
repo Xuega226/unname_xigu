@@ -398,10 +398,23 @@ class WorkspaceData {
     final sourcesById = {for (final s in result.sources) s.id: s};
     final documentsById = {for (final d in result.documents) d.id: d};
     final identities = <String>{};
+    final announcements = <String>{};
     for (final document in result.documents) {
       if (!studiesById.containsKey(document.studyId) ||
           !identities.add('${document.studyId}:${document.sha256}')) {
         throw const FormatException('财报无对应研究卡或相同文件重复导入');
+      }
+      final origin = document.origin;
+      if (origin != null) {
+        final matching = result.watchlist.where((c) => c.code == origin.code);
+        if (studiesById[document.studyId]!.code != origin.code ||
+            (matching.isNotEmpty &&
+                !matching.any((c) => c.exchange == origin.exchange)) ||
+            !announcements.add(
+              '${document.studyId}:${origin.exchange}:${origin.code}:${origin.announcementId}',
+            )) {
+          throw const FormatException('公告证券与研究卡不符或相同公告重复导入');
+        }
       }
     }
     for (final s in result.sources) {

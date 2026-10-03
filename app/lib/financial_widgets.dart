@@ -50,6 +50,7 @@ class _FinancialExtractionDialogState extends State<FinancialExtractionDialog> {
       if (docs.isNotEmpty) {
         start.text = docs.first.start;
         end.text = docs.first.end;
+        if (docs.first.origin?.isRevision == true) basis = '未注明';
       }
     }
   }
@@ -193,6 +194,7 @@ class _FinancialExtractionDialogState extends State<FinancialExtractionDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  key: ValueKey('basis-$basis'),
                   initialValue: basis,
                   isExpanded: true,
                   decoration: const InputDecoration(labelText: '数字披露版本（请对照原文）'),
@@ -207,6 +209,15 @@ class _FinancialExtractionDialogState extends State<FinancialExtractionDialog> {
                         }),
                 ),
                 const SizedBox(height: 16),
+                if (widget.documents.any(
+                  (d) =>
+                      d.origin?.isRevision == true &&
+                      sources.any((s) => s.documentId == d.id),
+                ))
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text('已选择修订公告：请核对哪些数字发生更正，明确原披露或重述口径后再比较。'),
+                  ),
                 Text('已选 ${sources.length} 段原文 · $count / 60000 字'),
                 for (final source in widget.sources)
                   ExpansionTile(
@@ -225,6 +236,13 @@ class _FinancialExtractionDialogState extends State<FinancialExtractionDialog> {
                                 sourceIds.add(source.id);
                               } else {
                                 sourceIds.remove(source.id);
+                              }
+                              if (widget.documents.any(
+                                (d) =>
+                                    d.origin?.isRevision == true &&
+                                    sources.any((s) => s.documentId == d.id),
+                              )) {
+                                basis = '未注明';
                               }
                               invalidate();
                             }),
