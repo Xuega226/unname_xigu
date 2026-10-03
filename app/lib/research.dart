@@ -39,19 +39,20 @@ String sourceUrl(Map<String, dynamic> j, String key) {
 }
 
 class WatchCompany {
-  const WatchCompany(
-      {required this.id,
-      required this.code,
-      required this.exchange,
-      required this.name,
-      required this.industry,
-      required this.source,
-      required this.fetchedAt,
-      this.close,
-      this.tradeDate,
-      this.quoteFetchedAt,
-      this.quoteSource,
-      this.error = ''});
+  const WatchCompany({
+    required this.id,
+    required this.code,
+    required this.exchange,
+    required this.name,
+    required this.industry,
+    required this.source,
+    required this.fetchedAt,
+    this.close,
+    this.tradeDate,
+    this.quoteFetchedAt,
+    this.quoteSource,
+    this.error = '',
+  });
   final String id, code, exchange, name, industry, source, fetchedAt, error;
   final double? close;
   final String? tradeDate, quoteFetchedAt, quoteSource;
@@ -59,30 +60,32 @@ class WatchCompany {
   bool get specialIndustry => RegExp('银行|保险|证券').hasMatch(industry);
   WatchCompany quoted(double price, String date, String url, String time) =>
       WatchCompany(
-          id: id,
-          code: code,
-          exchange: exchange,
-          name: name,
-          industry: industry,
-          source: source,
-          fetchedAt: fetchedAt,
-          close: price,
-          tradeDate: date,
-          quoteFetchedAt: time,
-          quoteSource: url);
+        id: id,
+        code: code,
+        exchange: exchange,
+        name: name,
+        industry: industry,
+        source: source,
+        fetchedAt: fetchedAt,
+        close: price,
+        tradeDate: date,
+        quoteFetchedAt: time,
+        quoteSource: url,
+      );
   WatchCompany failed(String message) => WatchCompany(
-      id: id,
-      code: code,
-      exchange: exchange,
-      name: name,
-      industry: industry,
-      source: source,
-      fetchedAt: fetchedAt,
-      close: close,
-      tradeDate: tradeDate,
-      quoteFetchedAt: quoteFetchedAt,
-      quoteSource: quoteSource,
-      error: message);
+        id: id,
+        code: code,
+        exchange: exchange,
+        name: name,
+        industry: industry,
+        source: source,
+        fetchedAt: fetchedAt,
+        close: close,
+        tradeDate: tradeDate,
+        quoteFetchedAt: quoteFetchedAt,
+        quoteSource: quoteSource,
+        error: message,
+      );
   Map<String, dynamic> toJson() => {
         'id': id,
         'code': code,
@@ -95,7 +98,7 @@ class WatchCompany {
         'tradeDate': tradeDate,
         'quoteFetchedAt': quoteFetchedAt,
         'quoteSource': quoteSource,
-        'error': error
+        'error': error,
       };
   factory WatchCompany.fromJson(Map<String, dynamic> j) {
     final code = textField(j, 'code'), exchange = textField(j, 'exchange');
@@ -108,39 +111,48 @@ class WatchCompany {
       throw const FormatException('行情价格无效');
     }
     if (price == null &&
-        [j['tradeDate'], j['quoteFetchedAt'], j['quoteSource']]
-            .any((v) => v != null)) {
+        [
+          j['tradeDate'],
+          j['quoteFetchedAt'],
+          j['quoteSource'],
+        ].any((v) => v != null)) {
       throw const FormatException('行情字段不完整');
     }
     return WatchCompany(
-        id: textField(j, 'id'),
-        code: code,
-        exchange: exchange,
-        name: textField(j, 'name'),
-        industry: textField(j, 'industry'),
-        source: sourceUrl(j, 'source'),
-        fetchedAt: timestampField(j, 'fetchedAt'),
-        close: (price as num?)?.toDouble(),
-        tradeDate: price == null ? null : dateField(j, 'tradeDate'),
-        quoteFetchedAt:
-            price == null ? null : timestampField(j, 'quoteFetchedAt'),
-        quoteSource: price == null ? null : sourceUrl(j, 'quoteSource'),
-        error: textField(j, 'error', optional: true));
+      id: textField(j, 'id'),
+      code: code,
+      exchange: exchange,
+      name: textField(j, 'name'),
+      industry: textField(j, 'industry'),
+      source: sourceUrl(j, 'source'),
+      fetchedAt: timestampField(j, 'fetchedAt'),
+      close: (price as num?)?.toDouble(),
+      tradeDate: price == null ? null : dateField(j, 'tradeDate'),
+      quoteFetchedAt:
+          price == null ? null : timestampField(j, 'quoteFetchedAt'),
+      quoteSource: price == null ? null : sourceUrl(j, 'quoteSource'),
+      error: textField(j, 'error', optional: true),
+    );
   }
 }
 
 class SourceExcerpt {
-  const SourceExcerpt(
-      {required this.id,
-      required this.studyId,
-      required this.title,
-      required this.url,
-      required this.period,
-      required this.disclosedAt,
-      required this.page,
-      required this.unit,
-      required this.text});
+  const SourceExcerpt({
+    required this.id,
+    required this.studyId,
+    required this.title,
+    required this.url,
+    required this.period,
+    required this.disclosedAt,
+    required this.page,
+    required this.unit,
+    required this.text,
+    this.documentId,
+    this.pageNumber,
+  });
   final String id, studyId, title, url, period, disclosedAt, page, unit, text;
+  final String? documentId;
+  final int? pageNumber;
   Map<String, dynamic> toJson() => {
         'id': id,
         'studyId': studyId,
@@ -150,40 +162,80 @@ class SourceExcerpt {
         'disclosedAt': disclosedAt,
         'page': page,
         'unit': unit,
-        'text': text
+        'text': text,
+        if (documentId != null) 'documentId': documentId,
+        if (pageNumber != null) 'pageNumber': pageNumber,
       };
   factory SourceExcerpt.fromJson(Map<String, dynamic> j) {
     final text = textField(j, 'text');
     if (text.length > 24000) throw const FormatException('单段资料最多 24000 字');
+    final documentId = j['documentId'];
+    final pageNumber = j['pageNumber'];
+    if ((documentId == null) != (pageNumber == null) ||
+        (documentId != null &&
+            (documentId is! String ||
+                documentId.isEmpty ||
+                pageNumber is! int ||
+                pageNumber < 1 ||
+                pageNumber > 1000))) {
+      throw const FormatException('资料对应的文件或页码无效');
+    }
+    final url = textField(j, 'url', optional: true);
+    if (documentId == null || url.isNotEmpty) sourceUrl(j, 'url');
     return SourceExcerpt(
-        id: textField(j, 'id'),
-        studyId: textField(j, 'studyId'),
-        title: textField(j, 'title'),
-        url: sourceUrl(j, 'url'),
-        period: textField(j, 'period'),
-        disclosedAt: dateField(j, 'disclosedAt'),
-        page: textField(j, 'page'),
-        unit: textField(j, 'unit'),
-        text: text);
+      id: textField(j, 'id'),
+      studyId: textField(j, 'studyId'),
+      title: textField(j, 'title'),
+      url: url,
+      period: textField(j, 'period'),
+      disclosedAt: dateField(j, 'disclosedAt'),
+      page: textField(j, 'page'),
+      unit: textField(j, 'unit'),
+      text: text,
+      documentId: documentId as String?,
+      pageNumber: pageNumber as int?,
+    );
   }
 }
 
 class FinancialRecord {
-  const FinancialRecord(
-      {required this.id,
-      required this.studyId,
-      required this.sourceId,
-      required this.start,
-      required this.end,
-      required this.disclosedAt,
-      required this.unit,
-      this.revenue,
-      this.adjustedProfit,
-      this.operatingCash,
-      this.cash,
-      this.debt});
+  const FinancialRecord({
+    required this.id,
+    required this.studyId,
+    required this.sourceId,
+    required this.start,
+    required this.end,
+    required this.disclosedAt,
+    required this.unit,
+    this.revenue,
+    this.adjustedProfit,
+    this.operatingCash,
+    this.cash,
+    this.debt,
+    this.scope = '未注明',
+    this.basis = '未注明',
+    this.origin = 'manual',
+    this.evidence = const {},
+  });
   final String id, studyId, sourceId, start, end, disclosedAt, unit;
   final double? revenue, adjustedProfit, operatingCash, cash, debt;
+  final String scope, basis, origin;
+  final Map<String, FinancialEvidence> evidence;
+  static const metrics = [
+    'revenue',
+    'adjustedProfit',
+    'operatingCash',
+    'cash',
+    'debt',
+  ];
+  static const labels = ['营业收入', '扣非净利润', '经营现金流', '期末现金', '期末有息负债'];
+  Map<String, double?> get amounts => {
+        'revenue': revenue,
+        'adjustedProfit': adjustedProfit,
+        'operatingCash': operatingCash,
+        'cash': cash,
+        'debt': debt,
+      };
   Map<String, dynamic> toJson() => {
         'id': id,
         'studyId': studyId,
@@ -196,7 +248,11 @@ class FinancialRecord {
         'adjustedProfit': adjustedProfit,
         'operatingCash': operatingCash,
         'cash': cash,
-        'debt': debt
+        'debt': debt,
+        'scope': scope,
+        'basis': basis,
+        'origin': origin,
+        'evidence': evidence.map((k, v) => MapEntry(k, v.toJson())),
       };
   factory FinancialRecord.fromJson(Map<String, dynamic> j) {
     double? amount(String key, {bool signed = false}) {
@@ -218,22 +274,132 @@ class FinancialRecord {
     if (!['元', '万元', '亿元'].contains(unit)) {
       throw const FormatException('单位应为元、万元或亿元');
     }
+    final scope = j['scope'] ?? '未注明', basis = j['basis'] ?? '未注明';
+    final origin = j['origin'] ?? 'manual';
+    if (!['合并', '母公司', '未注明'].contains(scope) ||
+        !['原披露', '重述', '未注明'].contains(basis) ||
+        !['manual', 'aiConfirmed'].contains(origin)) {
+      throw const FormatException('财务报表口径或核验来源无效');
+    }
+    final rawEvidence = j['evidence'] ?? <String, dynamic>{};
+    if (rawEvidence is! Map<String, dynamic> ||
+        rawEvidence.keys.any((k) => !metrics.contains(k))) {
+      throw const FormatException('财务逐项证据格式无效');
+    }
+    final evidence = rawEvidence.map((k, v) {
+      if (v is! Map<String, dynamic>) throw const FormatException('财务证据无效');
+      return MapEntry(k, FinancialEvidence.fromJson(v));
+    });
+    for (final metric in metrics) {
+      final value = amount(
+        metric,
+        signed: ['adjustedProfit', 'operatingCash'].contains(metric),
+      );
+      final proof = evidence[metric];
+      if ((origin == 'aiConfirmed' && value != null && proof == null) ||
+          (proof != null && (value == null || proof.value != value))) {
+        throw const FormatException('财务候选值与保存的逐项证据不一致');
+      }
+    }
     return FinancialRecord(
-        id: textField(j, 'id'),
-        studyId: textField(j, 'studyId'),
-        sourceId: textField(j, 'sourceId'),
-        start: start,
-        end: end,
-        disclosedAt: disclosure,
-        unit: unit,
-        revenue: amount('revenue'),
-        adjustedProfit: amount('adjustedProfit', signed: true),
-        operatingCash: amount('operatingCash', signed: true),
-        cash: amount('cash'),
-        debt: amount('debt'));
+      id: textField(j, 'id'),
+      studyId: textField(j, 'studyId'),
+      sourceId: textField(j, 'sourceId'),
+      start: start,
+      end: end,
+      disclosedAt: disclosure,
+      unit: unit,
+      revenue: amount('revenue'),
+      adjustedProfit: amount('adjustedProfit', signed: true),
+      operatingCash: amount('operatingCash', signed: true),
+      cash: amount('cash'),
+      debt: amount('debt'),
+      scope: scope as String,
+      basis: basis as String,
+      origin: origin as String,
+      evidence: evidence,
+    );
   }
   bool comparableWith(FinancialRecord other) =>
-      start == other.start && end == other.end && unit == other.unit;
+      start == other.start &&
+      end == other.end &&
+      unit == other.unit &&
+      scope == other.scope &&
+      basis == other.basis;
+}
+
+double parseFinancialNumber(String raw) {
+  final value = raw.trim().replaceAll('，', ',').replaceAll('−', '-');
+  if (!RegExp(r'^(?:负|-)?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$')
+          .hasMatch(value) &&
+      !RegExp(r'^\((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)$').hasMatch(value)) {
+    throw const FormatException('原文数值格式无效，不接受百分比或推算值');
+  }
+  final negative = value.startsWith('负') || value.startsWith('(');
+  final number = double.parse(
+        value
+            .replaceAll(',', '')
+            .replaceAll('负', '')
+            .replaceAll('(', '')
+            .replaceAll(')', ''),
+      ) *
+      (negative ? -1 : 1);
+  if (!number.isFinite || number.abs() > 1e15) {
+    throw const FormatException('财务数值过大');
+  }
+  return number;
+}
+
+class FinancialEvidence {
+  const FinancialEvidence({
+    required this.sourceId,
+    required this.quote,
+    required this.rawValue,
+    required this.label,
+  });
+  final String sourceId, quote, rawValue, label;
+  double get value => parseFinancialNumber(rawValue);
+  Map<String, dynamic> toJson() => {
+        'sourceId': sourceId,
+        'quote': quote,
+        'rawValue': rawValue,
+        'label': label,
+      };
+  factory FinancialEvidence.fromJson(Map<String, dynamic> j) {
+    final result = FinancialEvidence(
+      sourceId: textField(j, 'sourceId'),
+      quote: textField(j, 'quote'),
+      rawValue: textField(j, 'rawValue'),
+      label: textField(j, 'label'),
+    );
+    result.value;
+    return result;
+  }
+  bool validFor(SourceExcerpt source) {
+    String normalize(String v) => v.replaceAll(RegExp(r'\s+'), '');
+    final normalized = normalize(quote);
+    if (source.id != sourceId ||
+        normalized.length < 8 ||
+        !normalize(source.text).contains(normalized) ||
+        !normalized.contains(normalize(label))) {
+      return false;
+    }
+    final numbers = RegExp(
+      r'(?:负|-|−)?(?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?\)',
+    )
+        .allMatches(normalized)
+        .where(
+          (m) =>
+              m.end == normalized.length ||
+              !['%', '％'].contains(normalized[m.end]),
+        )
+        .map((m) => m.group(0)!);
+    return numbers.any(
+      (n) =>
+          n.replaceAll('，', ',').replaceAll('−', '-') ==
+          normalize(rawValue).replaceAll('，', ',').replaceAll('−', '-'),
+    );
+  }
 }
 
 class ResearchDraft {
@@ -280,8 +446,10 @@ class ResearchDraft {
   }
 
   String render(String key) => sections[key]!
-      .map((c) =>
-          '${c.text}${c.refs.map((r) => '\n[${r.sourceId}]「${r.quote}」').join()}')
+      .map(
+        (c) =>
+            '${c.text}${c.refs.map((r) => '\n[${r.sourceId}]「${r.quote}」').join()}',
+      )
       .join('\n\n');
 }
 
@@ -295,11 +463,12 @@ class DraftClaim {
       throw const FormatException('引用格式无效');
     }
     return DraftClaim(
-        textField(j, 'text'),
-        refs.map((v) {
-          if (v is! Map<String, dynamic>) throw const FormatException('引用格式无效');
-          return EvidenceRef(textField(v, 'sourceId'), textField(v, 'quote'));
-        }).toList());
+      textField(j, 'text'),
+      refs.map((v) {
+        if (v is! Map<String, dynamic>) throw const FormatException('引用格式无效');
+        return EvidenceRef(textField(v, 'sourceId'), textField(v, 'quote'));
+      }).toList(),
+    );
   }
 }
 
