@@ -103,7 +103,9 @@ class _ReportFetchDialogState extends State<ReportFetchDialog> {
       }
       setState(() {
         result = found;
-        message = found.reports.isEmpty ? '没有找到可下载的年度报告，可继续手动导入 PDF。' : '';
+        message = found.reports.isEmpty
+            ? '本次未查到完整年报。可手动导入官方 PDF；新上市公司可先补充招股说明书和上市公告书。'
+            : '';
       });
     } on ServiceFailure catch (e) {
       if (active(token)) setState(() => message = e.message);

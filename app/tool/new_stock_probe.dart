@@ -22,7 +22,12 @@ Future<void> main() async {
   final market = MarketService();
   final reports = ReportFetchService(transport: PublicReportProbeTransport());
   var failed = false;
-  for (final issuer in [('SZ', '001246'), ('SH', '600660'), ('SZ', '000001')]) {
+  for (final issuer in [
+    ('SZ', '301190'),
+    ('SZ', '001246'),
+    ('SH', '600660'),
+    ('SZ', '000001'),
+  ]) {
     try {
       final company = await market.lookup(issuer.$1, issuer.$2);
       final result = await reports.search(issuer.$1, issuer.$2);
@@ -33,7 +38,7 @@ Future<void> main() async {
           'marketName': company.name,
           'officialName': result.companyName,
           'reports': result.reports
-              .map((r) => {'id': r.id, 'year': r.year})
+              .map((r) => {'id': r.id, 'year': r.year, 'url': r.url.toString()})
               .toList(),
           'missingYears': result.missingYears,
           'warnings': result.warnings,

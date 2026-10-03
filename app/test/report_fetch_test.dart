@@ -144,10 +144,9 @@ void main() {
     expect(t.uris, isEmpty);
   });
 
-  test('Official company must be a unique A-share with matching exchange and organization code', () async {
+  test('Official company must be a unique A-share with exact code and valid organization ID', () async {
     for (final response in [
-      companyResponse(orgId: 'gssz0600660'),
-      companyResponse(orgId: 'gssh0600661'),
+      companyResponse(orgId: 'invalid'),
       companyResponse(category: '债券'),
       companyResponse(code: '600661'),
       jsonResponse([]),
@@ -190,17 +189,20 @@ void main() {
     expect(t.uris.every((uri) => uri.scheme == 'https'), isTrue);
   });
 
-  test('SZ top-search type can also be shj, code prefix and legacy orgId retain market checks', () async {
-    final t = QueueReportTransport([
-      companyResponse(code: '000001', orgId: 'gssz0000001'),
-      announcementResponse([
-        announcement(code: '000001', orgId: 'gssz0000001'),
-      ]),
-    ]);
-    final result = await service(t).search('SZ', '000001');
-    expect(result.reports.single.code, '000001');
-    expect(t.forms.last!['column'], 'szse');
-  });
+  test(
+    'SZ top-search type can also be shj, code prefix determines market',
+    () async {
+      final t = QueueReportTransport([
+        companyResponse(code: '000001', orgId: 'gssz0000001'),
+        announcementResponse([
+          announcement(code: '000001', orgId: 'gssz0000001'),
+        ]),
+      ]);
+      final result = await service(t).search('SZ', '000001');
+      expect(result.reports.single.code, '000001');
+      expect(t.forms.last!['column'], 'szse');
+    },
+  );
 
   test('Numeric issuer IDs support new listings and both exchanges, preserve exact announcement ownership', () async {
     for (final issuer in [
@@ -233,16 +235,53 @@ void main() {
     expect(result.code, '001246');
     expect(result.reports, isEmpty);
     expect(result.missingYears, [2025, 2024, 2023]);
-    expect(result.warnings.join(), contains('尚未披露'));
+    expect(result.warnings.join(), contains('不代表公司未披露'));
+    expect(result.warnings.join(), contains('招股说明书'));
     expect(t.forms.last!['stock'], '001246,9900057193');
   });
 
-  test('Numeric issuer IDs do not relax unique A-share, legacy market/code, or malformed ID checks', () async {
+  test('Shanshui 301190 accepts official gfbj ID and retrieves three years without mixing issuers', () async {
+    final t = QueueReportTransport([
+      companyResponse(code: '301190', orgId: 'gfbj0871838'),
+      announcementResponse([
+        for (final year in [2025, 2024, 2023])
+          announcement(
+            id: '$year',
+            year: year,
+            code: '301190',
+            orgId: 'gfbj0871838',
+          ),
+        announcement(id: '9001', code: '871838', orgId: 'gfbj0871838'),
+        announcement(id: '9002', code: '301190', orgId: 'gssz0301190'),
+      ]),
+    ]);
+    final result = await service(t).search('SZ', '301190');
+    expect(result.reports.map((r) => r.year), [2025, 2024, 2023]);
+    expect(result.missingYears, isEmpty);
+    expect(result.warnings.join(), contains('归属不匹配'));
+    expect(t.forms.last!['stock'], '301190,gfbj0871838');
+    expect(t.forms.last!['column'], 'szse');
+  });
+
+  test('Legacy organization prefixes and suffixes do not determine security identity', () async {
+    for (final orgId in ['gssh0001246', 'gssz0001247']) {
+      final t = QueueReportTransport([
+        companyResponse(code: '001246', orgId: orgId),
+        announcementResponse([
+          announcement(code: '001246', orgId: orgId),
+          announcement(id: '9001', code: '001247', orgId: orgId),
+        ]),
+      ]);
+      final result = await service(t).search('SZ', '001246');
+      expect(result.reports.single.code, '001246');
+      expect(t.forms.last!['column'], 'szse');
+    }
+  });
+
+  test('Issuer IDs do not relax unique A-share, exact code, or malformed ID checks', () async {
     for (final response in [
       companyResponse(code: '001246', orgId: '9900057193', category: '港股'),
       companyResponse(code: '001247', orgId: '9900057193'),
-      companyResponse(code: '001246', orgId: 'gssh0001246'),
-      companyResponse(code: '001246', orgId: 'gssz0001247'),
       ...[
         '',
         '990005719',
@@ -253,6 +292,11 @@ void main() {
         '9900057193,other',
         '990005719x',
         '-9900057193',
+        'gfbj',
+        'gfbj0871838,other',
+        'gfbj087183x',
+        'gfbj0871838 ',
+        'gfbj${'0' * 17}',
       ].map((id) => companyResponse(code: '001246', orgId: id)),
       jsonResponse([
         {

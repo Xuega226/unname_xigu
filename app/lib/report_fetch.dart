@@ -302,18 +302,15 @@ class ReportFetchService {
       if (matches.length != 1) throw ServiceFailure('未查到唯一匹配的 A 股公司，请核对代码');
       final company = matches.single;
       final orgId = company['orgId'], name = company['zwjc'];
-      final prefix = exchange == 'SH' ? 'gssh' : 'gssz';
-      // Newly listed issuers may have a ten-digit organization ID (e.g.
-      // 001246 -> 9900057193), rather than a legacy exchange/code ID. Numeric
-      // IDs are opaque: the validated code prefix and unique official A-share
-      // match determine the exchange, never topSearch's `type` or orgId.
-      // Preserve both market and code checks for legacy IDs, and require every
-      // returned announcement below to match this exact code AND orgId.
+      // Organization IDs are opaque across markets and listing changes:
+      // 301190 uses gfbj0871838, while 001246 uses 9900057193. Validate their
+      // known syntax only; the requested code prefix and unique official
+      // A-share match determine the exchange. Every announcement below must
+      // still match this exact code AND orgId.
       final validOrgId =
           orgId is String &&
-          (RegExp(r'^[1-9][0-9]{9}$').hasMatch(orgId) ||
-              (RegExp('^$prefix[0-9]+\$').hasMatch(orgId) &&
-                  orgId.endsWith(code)));
+          RegExp(r'^(?:(?:gssh|gssz|gfbj)[0-9]{6,16}|[1-9][0-9]{9})$')
+              .hasMatch(orgId);
       if (!validOrgId || name is! String || name.trim().isEmpty) {
         throw ServiceFailure('巨潮返回的公司标识与所选证券不匹配，请手动核对');
       }
@@ -455,7 +452,9 @@ class ReportFetchService {
           .where((year) => !reports.any((r) => r.year == year))
           .toList();
       if (missing.isNotEmpty) {
-        warnings.add('未找到 ${missing.join('、')} 年完整年报；可能尚未披露或来源结果不完整');
+        warnings.add(
+          '本次查询未找到 ${missing.join('、')} 年完整年报；不代表公司未披露。请核对官方公告，新上市公司可手动补充招股说明书和上市公告书。',
+        );
       }
       if (reports.any((r) => r.isRevision) ||
           expected.any(
