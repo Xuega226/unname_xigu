@@ -303,12 +303,19 @@ class ReportFetchService {
       final company = matches.single;
       final orgId = company['orgId'], name = company['zwjc'];
       final prefix = exchange == 'SH' ? 'gssh' : 'gssz';
-      if (orgId is! String ||
-          !RegExp('^$prefix[0-9]+\$').hasMatch(orgId) ||
-          !orgId.endsWith(code) ||
-          name is! String ||
-          name.trim().isEmpty) {
-        throw ServiceFailure('巨潮返回的证券归属与所选交易所不一致，请手动核对');
+      // Newly listed issuers may have a ten-digit organization ID (e.g.
+      // 001246 -> 9900057193), rather than a legacy exchange/code ID. Numeric
+      // IDs are opaque: the validated code prefix and unique official A-share
+      // match determine the exchange, never topSearch's `type` or orgId.
+      // Preserve both market and code checks for legacy IDs, and require every
+      // returned announcement below to match this exact code AND orgId.
+      final validOrgId =
+          orgId is String &&
+          (RegExp(r'^[1-9][0-9]{9}$').hasMatch(orgId) ||
+              (RegExp('^$prefix[0-9]+\$').hasMatch(orgId) &&
+                  orgId.endsWith(code)));
+      if (!validOrgId || name is! String || name.trim().isEmpty) {
+        throw ServiceFailure('巨潮返回的公司标识与所选证券不匹配，请手动核对');
       }
       final now = clock();
       final expected = List.generate(years, (i) => now.year - 1 - i);

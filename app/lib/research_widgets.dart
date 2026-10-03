@@ -42,8 +42,10 @@ class _CompanyLookupDialogState extends State<CompanyLookupDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
+                  key: ValueKey('company-exchange-$exchange'),
                   initialValue: exchange,
-                  decoration: const InputDecoration(labelText: '交易所'),
+                  decoration: const InputDecoration(
+                    labelText: '交易所', helperText: '填写完整代码后自动识别，可手动核对'),
                   items: const [
                     DropdownMenuItem(value: 'SH', child: Text('上海 SH')),
                     DropdownMenuItem(value: 'SZ', child: Text('深圳 SZ')),
@@ -54,6 +56,7 @@ class _CompanyLookupDialogState extends State<CompanyLookupDialog> {
                       : (v) => setState(() {
                             exchange = v!;
                             company = null;
+                            error = '';
                           }),
                 ),
                 const SizedBox(height: 16),
@@ -62,7 +65,12 @@ class _CompanyLookupDialogState extends State<CompanyLookupDialog> {
                   enabled: !busy,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(labelText: '六位股票代码（保留前导零）'),
-                  onChanged: (_) => setState(() => company = null),
+                  onChanged: (value) => setState(() {
+                    company = null;
+                    error = '';
+                    final inferred = aShareExchangeForCode(value.trim());
+                    if (inferred != null) exchange = inferred;
+                  }),
                 ),
                 const SizedBox(height: 16),
                 if (company != null)

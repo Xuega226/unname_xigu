@@ -97,6 +97,21 @@ class IoJsonTransport implements JsonTransport {
   }
 }
 
+String? aShareExchangeForCode(String code) {
+  if (!RegExp(r'^\d{6}$').hasMatch(code)) return null;
+  if (code.startsWith('6')) return 'SH';
+  if (RegExp(r'^[03]').hasMatch(code)) return 'SZ';
+  if (RegExp(r'^(4|8|92)').hasMatch(code)) return 'BJ';
+  return null;
+}
+
+String exchangeLabel(String exchange) => switch (exchange) {
+  'SH' => '上海 SH',
+  'SZ' => '深圳 SZ',
+  'BJ' => '北京 BJ',
+  _ => exchange,
+};
+
 class MarketService {
   MarketService({JsonTransport? transport, DateTime Function()? clock})
       : transport =
@@ -109,13 +124,12 @@ class MarketService {
         !RegExp(r'^\d{6}$').hasMatch(code)) {
       throw ServiceFailure('请输入六位代码和正确交易所');
     }
-    final prefixes = {
-      'SH': RegExp(r'^6'),
-      'SZ': RegExp(r'^[03]'),
-      'BJ': RegExp(r'^(4|8|92)')
-    };
-    if (!prefixes[exchange]!.hasMatch(code)) {
-      throw ServiceFailure('代码不属于所选 A 股交易所，请核对');
+    final expected = aShareExchangeForCode(code);
+    if (expected == null) {
+      throw ServiceFailure('暂不支持该股票代码范围，请核对六位 A 股代码');
+    }
+    if (expected != exchange) {
+      throw ServiceFailure('$code 对应${exchangeLabel(expected)}，当前选择${exchangeLabel(exchange)}，请切换交易所');
     }
     return '${exchange == 'SH' ? 1 : 0}.$code';
   }

@@ -190,20 +190,101 @@ void main() {
     expect(t.uris.every((uri) => uri.scheme == 'https'), isTrue);
   });
 
-  test(
-    'SZ top-search type can also be shj, exchange resolved from official orgId',
-    () async {
+  test('SZ top-search type can also be shj, code prefix and legacy orgId retain market checks', () async {
+    final t = QueueReportTransport([
+      companyResponse(code: '000001', orgId: 'gssz0000001'),
+      announcementResponse([
+        announcement(code: '000001', orgId: 'gssz0000001'),
+      ]),
+    ]);
+    final result = await service(t).search('SZ', '000001');
+    expect(result.reports.single.code, '000001');
+    expect(t.forms.last!['column'], 'szse');
+  });
+
+  test('Numeric issuer IDs support new listings and both exchanges, preserve exact announcement ownership', () async {
+    for (final issuer in [
+      ('SZ', '001246', '9900057193'),
+      ('SH', '603001', '9900042959'),
+    ]) {
       final t = QueueReportTransport([
-        companyResponse(code: '000001', orgId: 'gssz0000001'),
+        companyResponse(code: issuer.$2, orgId: issuer.$3),
         announcementResponse([
-          announcement(code: '000001', orgId: 'gssz0000001'),
+          announcement(code: issuer.$2, orgId: issuer.$3),
+          announcement(id: '2001', code: '000001', orgId: issuer.$3),
+          announcement(id: '2002', code: issuer.$2, orgId: '9900000001'),
         ]),
       ]);
-      final result = await service(t).search('SZ', '000001');
-      expect(result.reports.single.code, '000001');
-      expect(t.forms.last!['column'], 'szse');
-    },
-  );
+      final result = await service(t).search(issuer.$1, issuer.$2);
+      expect(result.code, issuer.$2);
+      expect(result.reports.single.id, '1001');
+      expect(result.warnings.join(), contains('归属不匹配'));
+      expect(t.forms.last!['stock'], '${issuer.$2},${issuer.$3}');
+      expect(t.forms.last!['column'], issuer.$1 == 'SH' ? 'sse' : 'szse');
+    }
+  });
+
+  test('New listing without annual reports returns missing years instead of rejecting identity', () async {
+    final t = QueueReportTransport([
+      companyResponse(code: '001246', orgId: '9900057193'),
+      announcementResponse([]),
+    ]);
+    final result = await service(t).search('SZ', '001246');
+    expect(result.code, '001246');
+    expect(result.reports, isEmpty);
+    expect(result.missingYears, [2025, 2024, 2023]);
+    expect(result.warnings.join(), contains('尚未披露'));
+    expect(t.forms.last!['stock'], '001246,9900057193');
+  });
+
+  test('Numeric issuer IDs do not relax unique A-share, legacy market/code, or malformed ID checks', () async {
+    for (final response in [
+      companyResponse(code: '001246', orgId: '9900057193', category: '港股'),
+      companyResponse(code: '001247', orgId: '9900057193'),
+      companyResponse(code: '001246', orgId: 'gssh0001246'),
+      companyResponse(code: '001246', orgId: 'gssz0001247'),
+      ...[
+        '',
+        '990005719',
+        '99000571931',
+        '0000000000',
+        ' 9900057193',
+        '9900057193 ',
+        '9900057193,other',
+        '990005719x',
+        '-9900057193',
+      ].map((id) => companyResponse(code: '001246', orgId: id)),
+      jsonResponse([
+        {
+          'code': '001246',
+          'category': 'A股',
+          'orgId': 9900057193,
+          'zwjc': '力勤资源',
+        },
+      ]),
+      jsonResponse([
+        {
+          'code': '001246',
+          'category': 'A股',
+          'orgId': '9900057193',
+          'zwjc': '力勤资源',
+        },
+        {
+          'code': '001246',
+          'category': 'A股',
+          'orgId': '9900000001',
+          'zwjc': '其他公司',
+        },
+      ]),
+    ]) {
+      final t = QueueReportTransport([response]);
+      await expectLater(
+        service(t).search('SZ', '001246'),
+        throwsA(isA<ServiceFailure>()),
+      );
+      expect(t.uris.length, 1);
+    }
+  });
 
   test('Excludes summaries, English versions, audit/proposal notices, obsolete years and other securities', () async {
     final excludedTitles = [
