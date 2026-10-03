@@ -144,10 +144,9 @@ void main() {
     expect(t.uris, isEmpty);
   });
 
-  test('Official company must be a unique A-share with matching exchange and organization code', () async {
+  test('Official company must be a unique A-share with exact code and valid organization ID', () async {
     for (final response in [
-      companyResponse(orgId: 'gssz0600660'),
-      companyResponse(orgId: 'gssh0600661'),
+      companyResponse(orgId: 'invalid'),
       companyResponse(category: '债券'),
       companyResponse(code: '600661'),
       jsonResponse([]),
@@ -191,7 +190,7 @@ void main() {
   });
 
   test(
-    'SZ top-search type can also be shj, exchange resolved from official orgId',
+    'SZ top-search type can also be shj, code prefix determines market',
     () async {
       final t = QueueReportTransport([
         companyResponse(code: '000001', orgId: 'gssz0000001'),
@@ -204,6 +203,132 @@ void main() {
       expect(t.forms.last!['column'], 'szse');
     },
   );
+
+  test('Numeric issuer IDs support new listings and both exchanges, preserve exact announcement ownership', () async {
+    for (final issuer in [
+      ('SZ', '001246', '9900057193'),
+      ('SH', '603001', '9900042959'),
+    ]) {
+      final t = QueueReportTransport([
+        companyResponse(code: issuer.$2, orgId: issuer.$3),
+        announcementResponse([
+          announcement(code: issuer.$2, orgId: issuer.$3),
+          announcement(id: '2001', code: '000001', orgId: issuer.$3),
+          announcement(id: '2002', code: issuer.$2, orgId: '9900000001'),
+        ]),
+      ]);
+      final result = await service(t).search(issuer.$1, issuer.$2);
+      expect(result.code, issuer.$2);
+      expect(result.reports.single.id, '1001');
+      expect(result.warnings.join(), contains('归属不匹配'));
+      expect(t.forms.last!['stock'], '${issuer.$2},${issuer.$3}');
+      expect(t.forms.last!['column'], issuer.$1 == 'SH' ? 'sse' : 'szse');
+    }
+  });
+
+  test('New listing without annual reports returns missing years instead of rejecting identity', () async {
+    final t = QueueReportTransport([
+      companyResponse(code: '001246', orgId: '9900057193'),
+      announcementResponse([]),
+    ]);
+    final result = await service(t).search('SZ', '001246');
+    expect(result.code, '001246');
+    expect(result.reports, isEmpty);
+    expect(result.missingYears, [2025, 2024, 2023]);
+    expect(result.warnings.join(), contains('不代表公司未披露'));
+    expect(result.warnings.join(), contains('招股说明书'));
+    expect(t.forms.last!['stock'], '001246,9900057193');
+  });
+
+  test('Shanshui 301190 accepts official gfbj ID and retrieves three years without mixing issuers', () async {
+    final t = QueueReportTransport([
+      companyResponse(code: '301190', orgId: 'gfbj0871838'),
+      announcementResponse([
+        for (final year in [2025, 2024, 2023])
+          announcement(
+            id: '$year',
+            year: year,
+            code: '301190',
+            orgId: 'gfbj0871838',
+          ),
+        announcement(id: '9001', code: '871838', orgId: 'gfbj0871838'),
+        announcement(id: '9002', code: '301190', orgId: 'gssz0301190'),
+      ]),
+    ]);
+    final result = await service(t).search('SZ', '301190');
+    expect(result.reports.map((r) => r.year), [2025, 2024, 2023]);
+    expect(result.missingYears, isEmpty);
+    expect(result.warnings.join(), contains('归属不匹配'));
+    expect(t.forms.last!['stock'], '301190,gfbj0871838');
+    expect(t.forms.last!['column'], 'szse');
+  });
+
+  test('Legacy organization prefixes and suffixes do not determine security identity', () async {
+    for (final orgId in ['gssh0001246', 'gssz0001247']) {
+      final t = QueueReportTransport([
+        companyResponse(code: '001246', orgId: orgId),
+        announcementResponse([
+          announcement(code: '001246', orgId: orgId),
+          announcement(id: '9001', code: '001247', orgId: orgId),
+        ]),
+      ]);
+      final result = await service(t).search('SZ', '001246');
+      expect(result.reports.single.code, '001246');
+      expect(t.forms.last!['column'], 'szse');
+    }
+  });
+
+  test('Issuer IDs do not relax unique A-share, exact code, or malformed ID checks', () async {
+    for (final response in [
+      companyResponse(code: '001246', orgId: '9900057193', category: '港股'),
+      companyResponse(code: '001247', orgId: '9900057193'),
+      ...[
+        '',
+        '990005719',
+        '99000571931',
+        '0000000000',
+        ' 9900057193',
+        '9900057193 ',
+        '9900057193,other',
+        '990005719x',
+        '-9900057193',
+        'gfbj',
+        'gfbj0871838,other',
+        'gfbj087183x',
+        'gfbj0871838 ',
+        'gfbj${'0' * 17}',
+      ].map((id) => companyResponse(code: '001246', orgId: id)),
+      jsonResponse([
+        {
+          'code': '001246',
+          'category': 'A股',
+          'orgId': 9900057193,
+          'zwjc': '力勤资源',
+        },
+      ]),
+      jsonResponse([
+        {
+          'code': '001246',
+          'category': 'A股',
+          'orgId': '9900057193',
+          'zwjc': '力勤资源',
+        },
+        {
+          'code': '001246',
+          'category': 'A股',
+          'orgId': '9900000001',
+          'zwjc': '其他公司',
+        },
+      ]),
+    ]) {
+      final t = QueueReportTransport([response]);
+      await expectLater(
+        service(t).search('SZ', '001246'),
+        throwsA(isA<ServiceFailure>()),
+      );
+      expect(t.uris.length, 1);
+    }
+  });
 
   test('Excludes summaries, English versions, audit/proposal notices, obsolete years and other securities', () async {
     final excludedTitles = [

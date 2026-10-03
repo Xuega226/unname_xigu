@@ -2,7 +2,11 @@ $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskPubspec = Get-Content -LiteralPath "$taskRoot/app/pubspec.yaml" -Raw
 if ($taskPubspec -notmatch '(?m)^version:\s*(\d+\.\d+\.\d+)\+') { throw 'Missing app version.' }
-$taskVersion = 'v' + (($Matches[1] -split '\.')[0..1] -join '.')
+$taskFullVersion = $Matches[1]
+$taskVersionParts = $taskFullVersion -split '\.'
+$taskVersion = 'v' + $(if ($taskVersionParts[2] -eq '0') {
+    $taskVersionParts[0..1] -join '.'
+} else { $taskFullVersion })
 $taskRelease = Join-Path $taskRoot 'app/build/windows/x64/runner/Release'
 $taskApk = Join-Path $taskRoot 'app/build/app/outputs/flutter-apk/app-release.apk'
 if (!(Test-Path -LiteralPath "$taskRelease/weiming_xigu.exe") -or !(Test-Path -LiteralPath $taskApk)) {
