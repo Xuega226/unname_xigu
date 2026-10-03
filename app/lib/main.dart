@@ -10,6 +10,7 @@ import 'services.dart';
 import 'credentials.dart';
 import 'research_widgets.dart';
 import 'report_import.dart';
+import 'report_fetch.dart';
 import 'financial_widgets.dart';
 import 'review_widgets.dart';
 
@@ -31,6 +32,7 @@ class LianghuaApp extends StatelessWidget {
     this.credentials,
     this.pdfImporter,
     this.reportFiles,
+    this.reportFetcher,
   });
   final WorkspaceStore? store;
   final MarketService? market;
@@ -38,6 +40,7 @@ class LianghuaApp extends StatelessWidget {
   final CredentialStore? credentials;
   final PdfImportService? pdfImporter;
   final ReportFileStore? reportFiles;
+  final ReportFetchService? reportFetcher;
   final String? fontFamily;
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -71,6 +74,7 @@ class LianghuaApp extends StatelessWidget {
           credentials: credentials,
           pdfImporter: pdfImporter,
           reportFiles: reportFiles,
+          reportFetcher: reportFetcher,
         ),
       );
 }
@@ -84,6 +88,7 @@ class WorkspaceScreen extends StatefulWidget {
     this.credentials,
     this.pdfImporter,
     this.reportFiles,
+    this.reportFetcher,
   });
   final WorkspaceStore? store;
   final MarketService? market;
@@ -91,6 +96,7 @@ class WorkspaceScreen extends StatefulWidget {
   final CredentialStore? credentials;
   final PdfImportService? pdfImporter;
   final ReportFileStore? reportFiles;
+  final ReportFetchService? reportFetcher;
   @override
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
 }
@@ -105,6 +111,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   late final _ai = widget.ai ?? DeepSeekService();
   late final _credentials = widget.credentials ?? SecureCredentialStore();
   late final _pdfImporter = widget.pdfImporter ?? PdfImportService();
+  late final _reportFetcher = widget.reportFetcher ?? ReportFetchService();
   late final _reportFiles = widget.reportFiles == null
       ? LocalReportFileStore.create()
       : Future<ReportFileStore>.value(widget.reportFiles);
@@ -1166,6 +1173,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         study: s,
         documents: _data!.documents.where((d) => d.studyId == s.id).toList(),
         importer: _pdfImporter,
+        reportFetcher: _reportFetcher,
+        exchange: _data!.watchlist.where((c) => c.code == s.code)
+            .map((c) => c.exchange).firstOrNull,
         files: files,
         store: _credentials,
         service: _ai,
