@@ -95,4 +95,4 @@ Windows 便携包必须完整解压，保留 exe、DLL 与 data 一起使用。A
 
 本轮计划见 [v0.5 计划](docs/v0.5-plan.md)，文件格式见 [持仓导入说明](docs/broker-holdings-import.md)，历史验证见 [v0.5 原始记录](docs/v0.5-validation.md)，本次结果见 [v0.5.1 验收](docs/v0.5-acceptance.md)。前几轮记录保留在 [v0.4.3 验收](docs/v0.4-acceptance.md)、[v0.3.1 验收](docs/v0.3-acceptance.md)及 [v0.2.1 验收](docs/v0.2-acceptance.md)。
 
-后续 [v0.6 规划](docs/v0.6-plan.md)按用户要求继续采用单账户，重点为导入历史、撤销和 CSV 兼容；当前仅完成规划，尚未在本分支实现。
+后续 [v0.6 规划](docs/v0.6-plan.md)按用户要求继续采用单账户，重点为风险图表、导入历史、撤销和 CSV 兼容；量化规则研究与回测的阶段见 [量化与风险路线图](docs/quant-risk-roadmap.md)。当前仅完成规划，尚未在本分支实现。
