@@ -10,6 +10,8 @@ import 'services.dart';
 import 'reports.dart';
 import 'report_import.dart';
 import 'report_widgets.dart';
+import 'report_fetch.dart';
+import 'report_fetch_widgets.dart';
 import 'financial_widgets.dart';
 
 class CompanyLookupDialog extends StatefulWidget {
@@ -32,88 +34,98 @@ class _CompanyLookupDialogState extends State<CompanyLookupDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('添加真实自选公司'),
-        content: SizedBox(
-          width: 480,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: exchange,
-                  decoration: const InputDecoration(labelText: '交易所'),
-                  items: const [
-                    DropdownMenuItem(value: 'SH', child: Text('上海 SH')),
-                    DropdownMenuItem(value: 'SZ', child: Text('深圳 SZ')),
-                    DropdownMenuItem(value: 'BJ', child: Text('北京 BJ')),
-                  ],
-                  onChanged: busy
-                      ? null
-                      : (v) => setState(() {
-                            exchange = v!;
-                            company = null;
-                          }),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: code,
-                  enabled: !busy,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: '六位股票代码（保留前导零）'),
-                  onChanged: (_) => setState(() => company = null),
-                ),
-                const SizedBox(height: 16),
-                if (company != null)
-                  SelectableText(
-                    '${company!.name} · ${company!.symbol}\n行业：${company!.industry}\n来源：东方财富\n获取：${company!.fetchedAt}\n${company!.source}',
-                  ),
-                if (error.isNotEmpty)
-                  Text(error, style: const TextStyle(color: Colors.red)),
-                if (busy)
-                  const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: CircularProgressIndicator(),
-                  ),
+    title: const Text('添加真实自选公司'),
+    content: SizedBox(
+      width: 480,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              key: ValueKey('company-exchange-$exchange'),
+              initialValue: exchange,
+              decoration: const InputDecoration(
+                labelText: '交易所',
+                helperText: '填写完整代码后自动识别，可手动核对',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'SH', child: Text('上海 SH')),
+                DropdownMenuItem(value: 'SZ', child: Text('深圳 SZ')),
+                DropdownMenuItem(value: 'BJ', child: Text('北京 BJ')),
               ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: busy ? null : () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          OutlinedButton(
-            onPressed: busy
-                ? null
-                : () async {
-                    setState(() {
-                      busy = true;
-                      error = '';
+              onChanged: busy
+                  ? null
+                  : (v) => setState(() {
+                      exchange = v!;
                       company = null;
-                    });
-                    try {
-                      final found = await widget.service.lookup(
-                        exchange,
-                        code.text.trim(),
-                      );
-                      if (mounted) setState(() => company = found);
-                    } catch (e) {
-                      if (mounted) setState(() => error = '$e');
-                    } finally {
-                      if (mounted) setState(() => busy = false);
-                    }
-                  },
-            child: const Text('核验公司'),
-          ),
-          FilledButton(
-            onPressed: busy || company == null
-                ? null
-                : () => Navigator.pop(context, company),
-            child: const Text('加入自选'),
-          ),
-        ],
-      );
+                      error = '';
+                    }),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: code,
+              enabled: !busy,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: '六位股票代码（保留前导零）'),
+              onChanged: (value) => setState(() {
+                company = null;
+                error = '';
+                final inferred = aShareExchangeForCode(value.trim());
+                if (inferred != null) exchange = inferred;
+              }),
+            ),
+            const SizedBox(height: 16),
+            if (company != null)
+              SelectableText(
+                '${company!.name} · ${company!.symbol}\n行业：${company!.industry}\n来源：东方财富\n获取：${company!.fetchedAt}\n${company!.source}',
+              ),
+            if (error.isNotEmpty)
+              Text(error, style: const TextStyle(color: Colors.red)),
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(),
+              ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: busy ? null : () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      OutlinedButton(
+        onPressed: busy
+            ? null
+            : () async {
+                setState(() {
+                  busy = true;
+                  error = '';
+                  company = null;
+                });
+                try {
+                  final found = await widget.service.lookup(
+                    exchange,
+                    code.text.trim(),
+                  );
+                  if (mounted) setState(() => company = found);
+                } catch (e) {
+                  if (mounted) setState(() => error = '$e');
+                } finally {
+                  if (mounted) setState(() => busy = false);
+                }
+              },
+        child: const Text('核验公司'),
+      ),
+      FilledButton(
+        onPressed: busy || company == null
+            ? null
+            : () => Navigator.pop(context, company),
+        child: const Text('加入自选'),
+      ),
+    ],
+  );
 }
 
 class DeepSeekSettingsDialog extends StatefulWidget {
@@ -178,95 +190,90 @@ class _DeepSeekSettingsDialogState extends State<DeepSeekSettingsDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('DeepSeek 本地设置'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '密钥由本机系统安全存储保存，不进入研究备份。生成草稿时仅发送所选公司的资料片段到 DeepSeek；模型服务按其账户计费。换设备后需重新设置密钥。',
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: key,
-                  obscureText: true,
-                  enabled: ready && !busy,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration:
-                      const InputDecoration(labelText: 'DeepSeek API Key'),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: model,
-                  enabled: ready && !busy,
-                  decoration:
-                      const InputDecoration(labelText: '模型 ID（可由连接检查获取）'),
-                ),
-                const SizedBox(height: 16),
-                if (message.isNotEmpty) Text(message),
-                if (busy) const CircularProgressIndicator(),
-              ],
+    title: const Text('DeepSeek 本地设置'),
+    content: SizedBox(
+      width: 520,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '密钥由本机系统安全存储保存，不进入研究备份。生成草稿时仅发送所选公司的资料片段到 DeepSeek；模型服务按其账户计费。换设备后需重新设置密钥。',
             ),
-          ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: key,
+              obscureText: true,
+              enabled: ready && !busy,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(labelText: 'DeepSeek API Key'),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: model,
+              enabled: ready && !busy,
+              decoration: const InputDecoration(labelText: '模型 ID（可由连接检查获取）'),
+            ),
+            const SizedBox(height: 16),
+            if (message.isNotEmpty) Text(message),
+            if (busy) const CircularProgressIndicator(),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: busy ? null : () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-          TextButton(
-            onPressed: busy
-                ? null
-                : () => action(() async {
-                      await widget.store.clear();
-                      key.clear();
-                      if (mounted) {
-                        setState(() {
-                          ready = true;
-                          message = '已删除本机密钥';
-                        });
-                      }
-                    }),
-            child: const Text('删除密钥'),
-          ),
-          OutlinedButton(
-            onPressed: !ready || busy
-                ? null
-                : () => action(() async {
-                      if (key.text.trim().isEmpty) {
-                        throw ServiceFailure('请填写密钥');
-                      }
-                      final models =
-                          await widget.service.models(key.text.trim());
-                      if (mounted) {
-                        setState(
-                            () => message = '连接成功，可用模型：${models.join('、')}');
-                      }
-                    }),
-            child: const Text('检查连接'),
-          ),
-          FilledButton(
-            onPressed: !ready || busy
-                ? null
-                : () => action(() async {
-                      if (key.text.trim().isEmpty ||
-                          !RegExp(r'^[a-zA-Z0-9_.-]{1,100}$')
-                              .hasMatch(model.text.trim())) {
-                        throw ServiceFailure('请填写密钥和有效模型 ID');
-                      }
-                      await widget.store.write(
-                        AiSettings(
-                            key: key.text.trim(), model: model.text.trim()),
-                      );
-                      if (mounted) setState(() => message = '已安全保存到本机');
-                    }),
-            child: const Text('保存设置'),
-          ),
-        ],
-      );
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: busy ? null : () => Navigator.pop(context),
+        child: const Text('关闭'),
+      ),
+      TextButton(
+        onPressed: busy
+            ? null
+            : () => action(() async {
+                await widget.store.clear();
+                key.clear();
+                if (mounted) {
+                  setState(() {
+                    ready = true;
+                    message = '已删除本机密钥';
+                  });
+                }
+              }),
+        child: const Text('删除密钥'),
+      ),
+      OutlinedButton(
+        onPressed: !ready || busy
+            ? null
+            : () => action(() async {
+                if (key.text.trim().isEmpty) {
+                  throw ServiceFailure('请填写密钥');
+                }
+                final models = await widget.service.models(key.text.trim());
+                if (mounted) {
+                  setState(() => message = '连接成功，可用模型：${models.join('、')}');
+                }
+              }),
+        child: const Text('检查连接'),
+      ),
+      FilledButton(
+        onPressed: !ready || busy
+            ? null
+            : () => action(() async {
+                if (key.text.trim().isEmpty ||
+                    !RegExp(r'^[a-zA-Z0-9_.-]{1,100}$')
+                        .hasMatch(model.text.trim())) {
+                  throw ServiceFailure('请填写密钥和有效模型 ID');
+                }
+                await widget.store.write(
+                  AiSettings(key: key.text.trim(), model: model.text.trim()),
+                );
+                if (mounted) setState(() => message = '已安全保存到本机');
+              }),
+        child: const Text('保存设置'),
+      ),
+    ],
+  );
 }
 
 class EvidenceDialog extends StatefulWidget {
@@ -285,6 +292,8 @@ class EvidenceDialog extends StatefulWidget {
     required this.service,
     required this.addDocument,
     required this.allowAI,
+    this.reportFetcher,
+    this.exchange,
   });
   final Study study;
   final List<SourceExcerpt> sources;
@@ -293,6 +302,8 @@ class EvidenceDialog extends StatefulWidget {
   final Future<bool> Function(FinancialRecord) addFinancial;
   final bool specialIndustry;
   final bool allowAI;
+  final ReportFetchService? reportFetcher;
+  final String? exchange;
   final List<ReportDocument> documents;
   final PdfImportService importer;
   final ReportFileStore files;
@@ -312,25 +323,20 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
     String title,
     List<InputField> fields,
     String note,
-  ) =>
-      showDialog<List<String>>(
-        context: context,
-        builder: (_) =>
-            DataFormDialog(title: title, fields: fields, note: note),
-      );
+  ) => showDialog<List<String>>(
+    context: context,
+    builder: (_) => DataFormDialog(title: title, fields: fields, note: note),
+  );
   Future<void> source() async {
-    final v = await form(
-        '录入原始资料片段',
-        [
-          const InputField('报告或公告标题', ''),
-          const InputField('原始 HTTPS 网址', ''),
-          const InputField('报告期（例如 2025 年度）', ''),
-          InputField('披露日期', dateToday(), date: true),
-          const InputField('页码或章节位置', ''),
-          const InputField('原文金额单位（元 / 万元 / 亿元；无金额填不适用）', ''),
-          const InputField('逐字原文（最多 24000 字）', '', multiline: true),
-        ],
-        '请从原始财报或公告摘录。片段保存后保留稳定 ID；更正时新增片段，旧引用仍可追溯。');
+    final v = await form('录入原始资料片段', [
+      const InputField('报告或公告标题', ''),
+      const InputField('原始 HTTPS 网址', ''),
+      const InputField('报告期（例如 2025 年度）', ''),
+      InputField('披露日期', dateToday(), date: true),
+      const InputField('页码或章节位置', ''),
+      const InputField('原文金额单位（元 / 万元 / 亿元；无金额填不适用）', ''),
+      const InputField('逐字原文（最多 24000 字）', '', multiline: true),
+    ], '请从原始财报或公告摘录。片段保存后保留稳定 ID；更正时新增片段，旧引用仍可追溯。');
     if (v == null || !mounted) return;
     setState(() => busy = true);
     try {
@@ -493,6 +499,37 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
     }
   }
 
+  Future<void> fetchReports() async {
+    final exchange = widget.exchange;
+    if (exchange == null) {
+      setState(() => message = '请先通过真实自选核验公司与交易所，再自动查找财报');
+      return;
+    }
+    final saved = await showDialog<List<ReportDocument>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReportFetchDialog(
+        study: widget.study,
+        exchange: exchange,
+        service: widget.reportFetcher ?? ReportFetchService(),
+        importer: widget.importer,
+        existingDocuments: documents,
+        save: widget.addDocument,
+      ),
+    );
+    if (saved != null && mounted) {
+      setState(() {
+        for (final document in saved) {
+          if (!documents.any((d) => d.id == document.id)) {
+            documents.add(document);
+            sources.addAll(document.excerpts());
+          }
+        }
+        message = '本次已核验导入 ${saved.length} 份年报，可继续提取财务候选值';
+      });
+    }
+  }
+
   Future<void> relink(ReportDocument document) async {
     setState(() {
       busy = true;
@@ -517,132 +554,143 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text('${widget.study.name} · 资料与财务'),
-        content: SizedBox(
-          width: 760,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('金额缺失显示“资料不足”。原文片段不代表已自动核验，公司名称、报告期间及数字仍需对照公告。'),
-                if (widget.specialIndustry)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      '金融行业：银行、保险、证券公司的债务与现金流口径特殊，不套用普通工业企业的现金覆盖判断；需补充资本充足率、资产质量等行业资料。',
-                    ),
-                  ),
-                if (message.isNotEmpty)
-                  Padding(
-                      padding: const EdgeInsets.all(8), child: Text(message)),
-                if (busy) const LinearProgressIndicator(),
-                if (!widget.allowAI)
-                  const Text('演示工作区仅供体验。导入真实财报和调用 AI 前，请新建空白工作区。'),
-                for (final document in documents)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+    title: Text('${widget.study.name} · 资料与财务'),
+    content: SizedBox(
+      width: 760,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('金额缺失显示“资料不足”。原文片段不代表已自动核验，公司名称、报告期间及数字仍需对照公告。'),
+            if (widget.specialIndustry)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  '金融行业：银行、保险、证券公司的债务与现金流口径特殊，不套用普通工业企业的现金覆盖判断；需补充资本充足率、资产质量等行业资料。',
+                ),
+              ),
+            if (message.isNotEmpty)
+              Padding(padding: const EdgeInsets.all(8), child: Text(message)),
+            if (busy) const LinearProgressIndicator(),
+            if (!widget.allowAI)
+              const Text('演示工作区仅供体验。导入真实财报和调用 AI 前，请新建空白工作区。'),
+            for (final document in documents)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        document.fileName,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        '${document.period} · ${document.pages.length} 页选页 · ${document.importedAt.substring(0, 10)}',
+                      ),
+                      if (document.origin != null) ...[
+                        Text(
+                          '巨潮公告 ${document.announcementId} · ${document.origin!.exchange} ${document.origin!.code} · ${document.origin!.isRevision ? '修订版' : '原披露'}',
+                        ),
+                        SelectableText(
+                          '披露 ${document.origin!.disclosedAt} · 下载出处：${document.origin!.downloadUrl}',
+                        ),
+                      ],
+                      SelectableText('SHA-256：${document.sha256}'),
+                      Wrap(
+                        spacing: 8,
                         children: [
-                          Text(
-                            document.fileName,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          TextButton(
+                            onPressed: busy
+                                ? null
+                                : () => readReport(
+                                    context,
+                                    document,
+                                    widget.files,
+                                    widget.importer,
+                                  ),
+                            child: const Text('查看原页与选页原文'),
                           ),
-                          Text(
-                            '${document.period} · ${document.pages.length} 页选页 · ${document.importedAt.substring(0, 10)}',
-                          ),
-                          SelectableText('SHA-256：${document.sha256}'),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              TextButton(
-                                onPressed: busy
-                                    ? null
-                                    : () => readReport(
-                                          context,
-                                          document,
-                                          widget.files,
-                                          widget.importer,
-                                        ),
-                                child: const Text('查看原页与选页原文'),
-                              ),
-                              TextButton(
-                                onPressed: busy ? null : () => relink(document),
-                                child: const Text('重新关联原 PDF'),
-                              ),
-                            ],
+                          TextButton(
+                            onPressed: busy ? null : () => relink(document),
+                            child: const Text('重新关联原 PDF'),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                for (final s in sources)
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    title: Text(s.title),
-                    subtitle: Text(
-                      '${s.period} · ${s.disclosedAt} · ${s.page} · ${s.unit}\n[${s.id}]',
-                    ),
-                    children: [
-                      if (s.documentId != null)
-                        OutlinedButton(
-                          onPressed: busy
-                              ? null
-                              : () => readReport(
-                                    context,
-                                    documents.singleWhere(
-                                      (d) => d.id == s.documentId,
-                                    ),
-                                    widget.files,
-                                    widget.importer,
-                                    pageNumber: s.pageNumber,
-                                  ),
-                          child: const Text('定位 PDF 原页'),
-                        ),
-                      SelectableText(
-                        '${s.url.isEmpty ? '本地 PDF，原文及文件校验信息已保留' : s.url}\n\n${s.text}',
-                      ),
                     ],
                   ),
-                const SizedBox(height: 16),
-                for (final f in financials)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: SelectableText(
-                      '${f.start} 至 ${f.end} · 单位：${f.unit} · ${f.scope} · ${f.basis}\n披露 ${f.disclosedAt} · 来源 [${f.sourceId}]\n营收 ${amount(f.revenue)} · 扣非净利 ${amount(f.adjustedProfit)}\n经营现金流 ${amount(f.operatingCash)} · 期末现金 ${amount(f.cash)} · 有息负债 ${amount(f.debt)}\n${f.evidence.entries.map((e) => '${FinancialRecord.labels[FinancialRecord.metrics.indexOf(e.key)]}：[${e.value.sourceId}]「${e.value.quote}」').join('\n')}',
+                ),
+              ),
+            for (final s in sources)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text(s.title),
+                subtitle: Text(
+                  '${s.period} · ${s.disclosedAt} · ${s.page} · ${s.unit}\n[${s.id}]',
+                ),
+                children: [
+                  if (s.documentId != null)
+                    OutlinedButton(
+                      onPressed: busy
+                          ? null
+                          : () => readReport(
+                              context,
+                              documents.singleWhere(
+                                (d) => d.id == s.documentId,
+                              ),
+                              widget.files,
+                              widget.importer,
+                              pageNumber: s.pageNumber,
+                            ),
+                      child: const Text('定位 PDF 原页'),
                     ),
+                  SelectableText(
+                    '${s.url.isEmpty ? '本地 PDF，原文及文件校验信息已保留' : s.url}\n\n${s.text}',
                   ),
-                if (sources.isEmpty) const Text('尚无原始资料片段'),
-              ],
-            ),
-          ),
+                ],
+              ),
+            const SizedBox(height: 16),
+            for (final f in financials)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: SelectableText(
+                  '${f.start} 至 ${f.end} · 单位：${f.unit} · ${f.scope} · ${f.basis}\n披露 ${f.disclosedAt} · 来源 [${f.sourceId}]\n营收 ${amount(f.revenue)} · 扣非净利 ${amount(f.adjustedProfit)}\n经营现金流 ${amount(f.operatingCash)} · 期末现金 ${amount(f.cash)} · 有息负债 ${amount(f.debt)}\n${f.evidence.entries.map((e) => '${FinancialRecord.labels[FinancialRecord.metrics.indexOf(e.key)]}：[${e.value.sourceId}]「${e.value.quote}」').join('\n')}',
+                ),
+              ),
+            if (sources.isEmpty) const Text('尚无原始资料片段'),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: busy ? null : () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-          OutlinedButton(
-            onPressed: busy ? null : financial,
-            child: const Text('核对财务字段'),
-          ),
-          OutlinedButton(
-            onPressed:
-                busy || !widget.allowAI || sources.isEmpty ? null : extract,
-            child: const Text('AI 提取财务候选值'),
-          ),
-          OutlinedButton(
-            onPressed: busy || !widget.allowAI ? null : importPdf,
-            child: const Text('导入财报 PDF'),
-          ),
-          FilledButton(
-            onPressed: busy ? null : source,
-            child: const Text('添加原文片段'),
-          ),
-        ],
-      );
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: busy ? null : () => Navigator.pop(context),
+        child: const Text('关闭'),
+      ),
+      OutlinedButton(
+        onPressed: busy ? null : financial,
+        child: const Text('核对财务字段'),
+      ),
+      OutlinedButton(
+        onPressed: busy || !widget.allowAI || sources.isEmpty ? null : extract,
+        child: const Text('AI 提取财务候选值'),
+      ),
+      OutlinedButton(
+        onPressed: busy || !widget.allowAI ? null : importPdf,
+        child: const Text('导入财报 PDF'),
+      ),
+      OutlinedButton.icon(
+        onPressed: busy || !widget.allowAI ? null : fetchReports,
+        icon: const Icon(Icons.download_outlined),
+        label: const Text('自动查找年报'),
+      ),
+      FilledButton(
+        onPressed: busy ? null : source,
+        child: const Text('添加原文片段'),
+      ),
+    ],
+  );
 }
 
 String amount(double? value) =>
@@ -712,14 +760,14 @@ class _DraftDialogState extends State<DraftDialog> {
                           onChanged: busy
                               ? null
                               : (v) => setState(() {
-                                    if (v!) {
-                                      selectedIds.add(source.id);
-                                    } else {
-                                      selectedIds.remove(source.id);
-                                    }
-                                    draft = null;
-                                    reviewed = false;
-                                  }),
+                                  if (v!) {
+                                    selectedIds.add(source.id);
+                                  } else {
+                                    selectedIds.remove(source.id);
+                                  }
+                                  draft = null;
+                                  reviewed = false;
+                                }),
                         ),
                         Expanded(
                           child: Text(
@@ -841,8 +889,9 @@ class _FinancialComparisonDialogState extends State<FinancialComparisonDialog> {
         '${f.start} 至 ${f.end} · ${f.unit} · ${f.scope} · ${f.basis}';
     final groups = widget.data.financials.map(group).toSet().toList()..sort();
     selected ??= groups.firstOrNull;
-    final records =
-        widget.data.financials.where((f) => group(f) == selected).toList();
+    final records = widget.data.financials
+        .where((f) => group(f) == selected)
+        .toList();
     final studies = {for (final s in widget.data.studies) s.id: s};
     return AlertDialog(
       title: const Text('同期间财务比较'),
