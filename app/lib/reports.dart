@@ -1,5 +1,81 @@
 import 'research.dart';
 
+/// Immutable catalogue metadata, kept alongside the human-reviewed PDF fields.
+/// Optional in schema 3 so existing workspaces need no destructive migration.
+class ReportOrigin {
+  const ReportOrigin({
+    required this.announcementId,
+    required this.code,
+    required this.exchange,
+    required this.companyName,
+    required this.title,
+    required this.downloadUrl,
+    required this.catalogueUrl,
+    required this.start,
+    required this.end,
+    required this.disclosedAt,
+    required this.fetchedAt,
+    required this.isRevision,
+  });
+  final String announcementId, code, exchange, companyName, title;
+  final String downloadUrl, catalogueUrl, start, end, disclosedAt, fetchedAt;
+  final bool isRevision;
+
+  Map<String, dynamic> toJson() => {
+    'announcementId': announcementId,
+    'code': code,
+    'exchange': exchange,
+    'companyName': companyName,
+    'title': title,
+    'downloadUrl': downloadUrl,
+    'catalogueUrl': catalogueUrl,
+    'start': start,
+    'end': end,
+    'disclosedAt': disclosedAt,
+    'fetchedAt': fetchedAt,
+    'isRevision': isRevision,
+  };
+
+  factory ReportOrigin.fromJson(Map<String, dynamic> j) {
+    final code = textField(j, 'code'), exchange = textField(j, 'exchange');
+    final id = textField(j, 'announcementId');
+    final start = dateField(j, 'start'), end = dateField(j, 'end');
+    final disclosure = dateField(j, 'disclosedAt');
+    final download = sourceUrl(j, 'downloadUrl');
+    final catalogue = sourceUrl(j, 'catalogueUrl');
+    final downloadUri = Uri.parse(download),
+        catalogueUri = Uri.parse(catalogue);
+    if (!validAShareSymbol(exchange, code) ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(id) ||
+        start.compareTo(end) > 0 ||
+        end.compareTo(disclosure) > 0 ||
+        j['isRevision'] is! bool ||
+        downloadUri.port != 443 ||
+        catalogueUri.port != 443 ||
+        ![
+          'static.cninfo.com.cn',
+          'www.cninfo.com.cn',
+        ].contains(Uri.parse(download).host) ||
+        Uri.parse(catalogue).host != 'www.cninfo.com.cn') {
+      throw const FormatException('自动获取的公告身份、日期或出处无效');
+    }
+    return ReportOrigin(
+      announcementId: id,
+      code: code,
+      exchange: exchange,
+      companyName: textField(j, 'companyName'),
+      title: textField(j, 'title'),
+      downloadUrl: download,
+      catalogueUrl: catalogue,
+      start: start,
+      end: end,
+      disclosedAt: disclosure,
+      fetchedAt: timestampField(j, 'fetchedAt'),
+      isRevision: j['isRevision'] as bool,
+    );
+  }
+}
+
 class ReportPage {
   const ReportPage({required this.number, required this.text});
   final int number;
@@ -31,11 +107,14 @@ class ReportDocument {
     required this.importedAt,
     required this.pageCount,
     required this.pages,
+    this.origin,
   });
   final String id, studyId, fileName, sha256, title, url, period, start, end;
   final String disclosedAt, unit, importedAt;
   final int pageCount;
   final List<ReportPage> pages;
+  final ReportOrigin? origin;
+  String? get announcementId => origin?.announcementId;
   Map<String, dynamic> toJson() => {
     'id': id,
     'studyId': studyId,
@@ -51,6 +130,7 @@ class ReportDocument {
     'importedAt': importedAt,
     'pageCount': pageCount,
     'pages': pages.map((p) => p.toJson()).toList(),
+    if (origin != null) 'origin': origin!.toJson(),
   };
   factory ReportDocument.fromJson(Map<String, dynamic> j) {
     final hash = textField(j, 'sha256');
@@ -60,6 +140,16 @@ class ReportDocument {
     final disclosure = dateField(j, 'disclosedAt');
     final url = textField(j, 'url', optional: true);
     if (url.isNotEmpty) sourceUrl(j, 'url');
+    final rawOrigin = j['origin'];
+    if (rawOrigin != null && rawOrigin is! Map<String, dynamic>) {
+      throw const FormatException('公告出处格式无效');
+    }
+    final origin = rawOrigin == null
+        ? null
+        : ReportOrigin.fromJson(rawOrigin as Map<String, dynamic>);
+    if (origin != null && url != origin.downloadUrl) {
+      throw const FormatException('财报网址与下载出处不一致');
+    }
     if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(hash) ||
         pageCount is! int ||
         pageCount < 1 ||
@@ -99,6 +189,7 @@ class ReportDocument {
       importedAt: timestampField(j, 'importedAt'),
       pageCount: pageCount,
       pages: pages,
+      origin: origin,
     );
   }
   List<SourceExcerpt> excerpts() {
