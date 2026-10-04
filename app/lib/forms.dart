@@ -174,8 +174,8 @@ class _BackupDialogState extends State<BackupDialog> {
               FilledButton(
                   onPressed: () {
                     try {
-                      if (controller.text.length > 1000000) {
-                        throw const FormatException('备份过大，初版仅支持 1 MB 以内的文本');
+                      if (controller.text.length > 8000000) {
+                        throw const FormatException('备份过大，最多支持 800 万字符');
                       }
                       final parsed = WorkspaceData.decode(controller.text);
                       Navigator.pop(context, parsed);

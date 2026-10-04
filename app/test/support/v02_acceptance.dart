@@ -187,6 +187,8 @@ void registerV02Acceptance({bool native = false}) {
       '2025-12-31',
       '2026-03-31',
       '万元',
+      '合并',
+      '原披露',
       '100',
       '',
       '-20',

@@ -79,7 +79,7 @@ void main() {
     expect(migrated.isDemo, true);
     expect(migrated.watchlist, isEmpty);
     expect(await File('${store.file.path}.v1.bak').readAsString(), raw);
-    expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 2);
+    expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 3);
     expect(WorkspaceData.decode(migrated.encode()).holdings.length, 3);
   });
   test(
