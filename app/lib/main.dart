@@ -617,11 +617,15 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }
 
   Future<void> _studyDialog([Study? s]) async {
+    final identityLocked = s != null &&
+        (_data!.sources.any((e) => e.studyId == s.id) ||
+            _data!.financials.any((e) => e.studyId == s.id) ||
+            _data!.watchlist.any((c) => c.code == s.code));
     final values = await _form(
         s == null ? '新增研究卡' : '编辑研究卡',
         [
-          InputField('股票代码', s?.code ?? ''),
-          InputField('公司名称', s?.name ?? ''),
+          InputField('股票代码', s?.code ?? '', readOnly: identityLocked),
+          InputField('公司名称', s?.name ?? '', readOnly: identityLocked),
           InputField('主营业务与财务事实', s?.business ?? '',
               multiline: true, optional: true),
           InputField('一年投资假设与验证指标', s?.thesis ?? '',
@@ -633,7 +637,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           InputField('来源、报告期、披露日期、页码与单位', s?.source ?? '',
               multiline: true, optional: true),
         ],
-        note: '只填写可核验的事实。缺资料可以留空，不会自动生成研究结论。');
+        note: identityLocked
+            ? '公司已关联自选或原始资料，代码与名称保留原值。研究其他公司请新建研究卡，避免沿用旧公司的证据。其余内容可继续编辑。'
+            : '只填写可核验的事实。缺资料可以留空，不会自动生成研究结论。');
     if (values == null) return;
     final study = Study(
         id: s?.id ?? newId(),

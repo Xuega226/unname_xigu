@@ -105,28 +105,23 @@ class MarketService {
   final JsonTransport transport;
   final DateTime Function() clock;
   String _secid(String exchange, String code) {
-    if (!['SH', 'SZ', 'BJ'].contains(exchange) ||
-        !RegExp(r'^\d{6}$').hasMatch(code)) {
-      throw ServiceFailure('请输入六位代码和正确交易所');
-    }
-    final prefixes = {
-      'SH': RegExp(r'^6'),
-      'SZ': RegExp(r'^[03]'),
-      'BJ': RegExp(r'^(4|8|92)')
-    };
-    if (!prefixes[exchange]!.hasMatch(code)) {
-      throw ServiceFailure('代码不属于所选 A 股交易所，请核对');
+    if (!validAShareSymbol(exchange, code)) {
+      throw ServiceFailure('请输入六位 A 股代码，并核对所选交易所');
     }
     return '${exchange == 'SH' ? 1 : 0}.$code';
   }
 
   Future<WatchCompany> lookup(String exchange, String code) async {
-    final uri = Uri.https('push2.eastmoney.com', '/api/qt/stock/get',
-        {'secid': _secid(exchange, code), 'fields': 'f57,f58,f127,f86'});
+    final uri = Uri.https(
+        'push2.eastmoney.com',
+        '/api/qt/stock/get',
+        // Public stock/get responses expose market identity as f107.
+        {'secid': _secid(exchange, code), 'fields': 'f107,f57,f58,f127,f86'});
     final json = await transport.request(uri), data = json['data'];
     if (json['rc'] != 0 ||
         data is! Map<String, dynamic> ||
         data['f57'] != code ||
+        data['f107'] != (exchange == 'SH' ? 1 : 0) ||
         data['f58'] is! String ||
         (data['f58'] as String).isEmpty) {
       throw ServiceFailure('未查到匹配公司，请核对代码与交易所');

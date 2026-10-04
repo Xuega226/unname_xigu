@@ -4,7 +4,41 @@ import 'package:lianghua_assistant/domain.dart';
 import 'package:lianghua_assistant/main.dart';
 import 'package:lianghua_assistant/storage.dart';
 
+class FailingWorkspaceStore extends MemoryWorkspaceStore {
+  FailingWorkspaceStore(super.data);
+  @override
+  Future<void> save(WorkspaceData value) async {
+    throw StateError('模拟磁盘写入失败');
+  }
+}
+
 void main() {
+  testWidgets('failed save keeps study, history and reopened data unchanged',
+      (tester) async {
+    final initial = WorkspaceData.demo();
+    final store = FailingWorkspaceStore(initial);
+    await tester.pumpWidget(LianghuaApp(store: store));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('公司研究').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('编辑研究卡').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).at(3), '无法保存的新判断');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('保存失败，当前修改未应用'), findsOneWidget);
+    expect(store.data!.encode(), initial.encode());
+    expect(find.text('无法保存的新判断'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(LianghuaApp(store: store));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('公司研究').last);
+    await tester.pumpAndSettle();
+    expect(find.text(initial.studies.first.thesis), findsWidgets);
+    expect(store.data!.reviews, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('editing a study retains its previous investment hypothesis',
       (tester) async {
     final initial = WorkspaceData.demo();

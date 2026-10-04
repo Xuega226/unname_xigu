@@ -1,4 +1,15 @@
 // Shared, versioned research records. Missing financial values stay null.
+bool validAShareSymbol(String exchange, String code) {
+  if (!RegExp(r'^\d{6}$').hasMatch(code)) return false;
+  return switch (exchange) {
+    'SH' => code.startsWith('6'),
+    'SZ' => code.startsWith('0') || code.startsWith('3'),
+    'BJ' =>
+      code.startsWith('4') || code.startsWith('8') || code.startsWith('92'),
+    _ => false
+  };
+}
+
 bool validDate(String value) {
   final date = DateTime.tryParse(value);
   return RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value) &&
@@ -99,9 +110,8 @@ class WatchCompany {
       };
   factory WatchCompany.fromJson(Map<String, dynamic> j) {
     final code = textField(j, 'code'), exchange = textField(j, 'exchange');
-    if (!RegExp(r'^\d{6}$').hasMatch(code) ||
-        !['SH', 'SZ', 'BJ'].contains(exchange)) {
-      throw const FormatException('股票代码或交易所无效');
+    if (!validAShareSymbol(exchange, code)) {
+      throw const FormatException('股票代码与 A 股交易所不一致或无效');
     }
     final price = j['close'];
     if (price != null && (price is! num || !price.isFinite || price <= 0)) {

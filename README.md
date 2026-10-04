@@ -1,4 +1,4 @@
-# 未名溪谷 v0.2
+# 未名溪谷 v0.2.1
 
 Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留虚构演示，真实研究从空白工作区开始。第二轮已实现真实自选、手动日线更新、带出处的财务录入与 DeepSeek 草稿核验。
 
@@ -13,6 +13,8 @@ Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留�
 7. 点击真实研究卡的「生成 AI 草稿」，手动发送所选公司的原文与来源元数据。模型调用由自己的 DeepSeek 账户计费，不发送账户持仓。应用检查来源 ID 及逐字摘录；检查通过仍需人工确认原文是否支持判断。勾选核验后接受，才写入研究卡，同时在日志保留旧版本与接受版本。未接受的草稿只保留在当前窗口。
 8. 手动录入资金与持仓，保持所有价格对应同一估值日期。只有全部持仓均匹配唯一有效的自选行情、交易日相同且不早于现有估值日时，才能确认将日线价格应用到整个账户。部分更新或混合日期不会改变风险计算。
 9. 用 JSON 导出备份，在另一端粘贴导入。导入替换整个工作区，不自动合并；密钥需在另一设备重新配置。
+
+关联自选或原始资料后的研究卡保留公司代码与名称，仍可编辑研究内容；研究另一家公司时请新建研究卡，避免将原公司的证据用于新公司。
 
 约一年持有期可以延长。20% 是相对净投入本金的亏损偏好提醒，不能保证亏损上限。账户高点回撤仍缺少现金流调整后的历史序列。当前只计算现金与股票资产，不支持融资负债。
 
@@ -38,11 +40,15 @@ Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留�
 cd app
 ../.tools/flutter/bin/flutter.bat test integration_test/native_services_test.dart -d windows
 ../.tools/flutter/bin/flutter.bat test integration_test/native_services_test.dart -d emulator-5554 --no-enable-impeller
+../.tools/flutter/bin/flutter.bat test integration_test/v02_acceptance_test.dart -d windows
+../.tools/flutter/bin/flutter.bat test integration_test/v02_acceptance_test.dart -d emulator-5554 --no-enable-impeller
 ../.tools/flutter/bin/dart.bat run tool/live_market_probe.dart
 ../.tools/flutter/bin/flutter.bat test tool/preview_test.dart --no-pub
 ```
 
 最后两条是手动联网验证与中文 UI 预览工具，预览需 Windows 字体。普通功能测试不调用外部模型、不使用真实密钥。
+
+`v02_acceptance_test.dart` 在临时数据目录使用模拟服务跑完整录入、草稿核验、风险、复查及备份导入流程，不读取真实密钥。可用 `--dart-define=V02_EXPORT_FIXTURE=绝对路径` 导出验收备份，并在另一端通过 `--dart-define=V02_IMPORT_FIXTURE=该端可读的绝对路径` 核对实际跨端恢复。Android 原生测试请指定独立测试模拟器，避免替换日常应用。
 
 已在应用保存密钥后，可显式运行真实 DeepSeek 测试（会产生账户费用）：
 
@@ -57,7 +63,7 @@ cd app
 
 Android applicationId 保留 com.lianghua.lianghua_assistant，可覆盖安装测试签名相同的旧包。Windows 新 exe 为 weiming_xigu.exe，产品显示名更改后仍使用用户 APPDATA 下 com.lianghua/lianghua_assistant 目录。Android 继续使用应用支持目录。
 
-workspace.json 备份格式升级为 schemaVersion 2，兼容导入 v1。首次读取旧主文件时先保留 workspace.json.v1.bak，再保存新格式；每次保存保留 workspace.json.bak。主文件损坏时报告错误并保留，不用演示覆盖。主文件缺失时可读取备份。备份文本限制 1 MB。
+workspace.json 备份格式升级为 schemaVersion 2，兼容导入 v1。首次读取旧主文件或仅剩的旧备份时，先保留原始字节至 workspace.json.v1.bak，再保存新格式；已有 v1 归档不会覆盖。每次保存保留 workspace.json.bak。主文件损坏时报告错误并保留，不用演示覆盖。主文件缺失时可读取备份。备份文本限制 1 MB。
 
 研究与持仓备份是明文，需自行妥善保存。Android 自动系统备份关闭，以免密钥密文在缺少 Keystore 的设备上恢复。卸载或清除应用数据前请手动导出研究资料。
 
@@ -69,4 +75,4 @@ Windows 便携包必须完整解压，保留 exe、DLL 与 data 一起使用。A
 
 当前没有自动财报抓取、PDF/OCR、全市场排名、后台通知、云端同步或自动交易。AI 仅整理输入资料，不自动核验公告真实性、引用逻辑或估值。2026-10-01 已使用本机配置验证 DeepSeek 真实鉴权与虚构资料生成；其他设备仍需配置自己的密钥。
 
-本轮计划与验收见 [v0.2 计划](docs/v0.2-plan.md)，实际验证见 [验证记录](docs/validation.md)。
+本轮计划与验收见 [v0.2 计划](docs/v0.2-plan.md)，原始验证见 [验证记录](docs/validation.md)，本次补验收见 [v0.2.1 验收记录](docs/v0.2-acceptance.md)。

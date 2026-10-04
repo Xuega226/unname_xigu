@@ -10,12 +10,16 @@ class InputField {
       this.integer = false,
       this.date = false,
       this.signed = false,
+      this.readOnly = false,
       this.max});
   final String label, value;
-  final bool numeric, multiline, optional, integer, date, signed;
+  final bool numeric, multiline, optional, integer, date, signed, readOnly;
   final double? max;
   String? validate(String raw) {
     final value = raw.trim();
+    if (readOnly && value != this.value.trim()) {
+      return '公司已有资料关联，请为其他公司新建研究卡';
+    }
     if (value.isEmpty) return optional ? null : '请填写$label';
     if (numeric) {
       final number = double.tryParse(value);
@@ -78,6 +82,7 @@ class _DataFormDialogState extends State<DataFormDialog> {
                               padding: const EdgeInsets.only(bottom: 16),
                               child: TextFormField(
                                   controller: controllers[i],
+                                  readOnly: widget.fields[i].readOnly,
                                   decoration: InputDecoration(
                                       labelText: widget.fields[i].label),
                                   minLines: widget.fields[i].multiline ? 3 : 1,

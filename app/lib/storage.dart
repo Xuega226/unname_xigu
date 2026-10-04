@@ -41,7 +41,16 @@ class LocalWorkspaceStore implements WorkspaceStore {
       return data;
     }
     if (await backup.exists()) {
-      return WorkspaceData.decode(await backup.readAsString());
+      final raw = await backup.readAsString();
+      final data = WorkspaceData.decode(raw);
+      if ((jsonDecode(raw) as Map)['schemaVersion'] == 1) {
+        // An interrupted save can leave only the original v1 backup. Archive
+        // its exact bytes before later saves replace the rolling backup.
+        final legacy = File('${file.path}.v1.bak');
+        if (!await legacy.exists()) await backup.copy(legacy.path);
+        await save(data);
+      }
+      return data;
     }
     return null;
   }

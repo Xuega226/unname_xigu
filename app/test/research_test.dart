@@ -83,6 +83,27 @@ void main() {
     expect(WorkspaceData.decode(migrated.encode()).holdings.length, 3);
   });
   test(
+      'v2 backup rejects a mismatched exchange and preserves valid leading zeroes',
+      () {
+    final raw = WorkspaceData.empty().toJson();
+    final company = testCompany('600000').toJson()
+      ..['code'] = '000001'
+      ..['id'] = 'SH:000001';
+    raw['watchlist'] = [company];
+    expect(() => WorkspaceData.decode(jsonEncode(raw)), throwsFormatException);
+    company['exchange'] = 'SZ';
+    company['id'] = 'SZ:000001';
+    final restored = WorkspaceData.decode(jsonEncode(raw));
+    expect(restored.watchlist.single.symbol, 'SZ:000001');
+    expect(WorkspaceData.decode(restored.encode()).watchlist.single.code,
+        '000001');
+    for (final invalid in ['00001', '000001 ', 'abcdef']) {
+      expect(validAShareSymbol('SZ', invalid), false);
+    }
+    expect(validAShareSymbol('UNKNOWN', '000001'), false);
+    expect(validAShareSymbol('BJ', '920001'), true);
+  });
+  test(
       'missing money stays null, negative profit/cashflow roundtrips, and mismatched periods cannot compare',
       () {
     final record = FinancialRecord.fromJson({
@@ -216,6 +237,41 @@ void main() {
               }
             }));
     expect(() => bad.quote(company), throwsA(isA<ServiceFailure>()));
+  });
+  test(
+      'company lookup verifies market identity even when returned code matches',
+      () async {
+    final transport = FakeTransport((uri, body) => {
+          'rc': 0,
+          'data': {'f107': 0, 'f57': '600000', 'f58': '错误市场的公司', 'f127': '银行'}
+        });
+    final market = MarketService(transport: transport);
+    await expectLater(
+        market.lookup('SH', '600000'), throwsA(isA<ServiceFailure>()));
+    expect(
+        transport.uri!.queryParameters['fields']!.split(','), contains('f107'));
+    for (final entry
+        in {'SH': '600000', 'SZ': '000001', 'BJ': '920001'}.entries) {
+      final matching = MarketService(
+          transport: FakeTransport((uri, body) => {
+                'rc': 0,
+                'data': {
+                  'f107': entry.key == 'SH' ? 1 : 0,
+                  'f57': entry.value,
+                  'f58': '正确市场的公司',
+                  'f127': '银行'
+                }
+              }));
+      final company = await matching.lookup(entry.key, entry.value);
+      expect(company.symbol, '${entry.key}:${entry.value}');
+    }
+    final missing = MarketService(
+        transport: FakeTransport((uri, body) => {
+              'rc': 0,
+              'data': {'f57': '000001', 'f58': '未确认市场的公司'}
+            }));
+    await expectLater(
+        missing.lookup('SZ', '000001'), throwsA(isA<ServiceFailure>()));
   });
   test(
       'DeepSeek sends only chosen excerpts with JSON mode and rejects truncated responses',

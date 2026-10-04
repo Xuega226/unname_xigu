@@ -1,12 +1,17 @@
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path -Parent $PSScriptRoot
+$taskPubspec = Get-Content -LiteralPath "$taskRoot/app/pubspec.yaml" -Raw
+if ($taskPubspec -notmatch '(?m)^version:\s*(\d+\.\d+\.\d+)\+') {
+    throw 'Application version was not found in pubspec.yaml.'
+}
+$taskVersion = $Matches[1]
 $taskRelease = Join-Path $taskRoot 'app/build/windows/x64/runner/Release'
 $taskApk = Join-Path $taskRoot 'app/build/app/outputs/flutter-apk/app-release.apk'
 if (!(Test-Path -LiteralPath "$taskRelease/weiming_xigu.exe") -or !(Test-Path -LiteralPath $taskApk)) {
     throw 'Build Windows and Android release packages first.'
 }
 $taskArtifacts = Join-Path $taskRoot 'artifacts'
-$taskBundle = Join-Path $taskArtifacts 'windows-v0.2'
+$taskBundle = Join-Path $taskArtifacts "windows-v$taskVersion"
 New-Item -ItemType Directory -Path $taskBundle -Force | Out-Null
 Get-ChildItem -LiteralPath $taskRelease | Where-Object { $_.Name -ne 'lianghua_assistant.exe' } | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $taskBundle -Recurse -Force
@@ -20,12 +25,12 @@ Get-ChildItem -LiteralPath "$($taskRuntime.FullName)/x64/Microsoft.VC143.CRT" -F
     Copy-Item -LiteralPath $_.FullName -Destination $taskBundle -Force
 }
 Copy-Item -LiteralPath "$taskRoot/README.md" -Destination "$taskBundle/README.md" -Force
-@'
-未名溪谷 v0.2
+@"
+未名溪谷 v$taskVersion
 
 Windows：完整解压后双击 weiming_xigu.exe，保留 DLL 与 data 目录。
 原 Windows 数据目录继续使用 APPDATA/com.lianghua/lianghua_assistant，旧版会自动迁移并保留 v1 备份。
-Android：安装 weiming-xigu-android-v0.2.apk，可覆盖相同测试签名的 v0.1 包；卸载前先导出备份。
+Android：安装 weiming-xigu-android-v$taskVersion.apk，可覆盖相同测试签名的旧包；卸载前先导出备份。
 
 从默认演示体验；真实研究请在菜单新建空白工作区，再添加真实自选。
 DeepSeek 密钥在「数据与设置 → DeepSeek 本地设置」录入。密钥不会放入研究备份，换设备需重新设置。
@@ -34,13 +39,13 @@ DeepSeek 密钥在「数据与设置 → DeepSeek 本地设置」录入。密钥
 JSON 导入会替换工作区，建议先导出当前资料。
 
 Android 为测试签名包，Windows 尚未进行其他电脑的完整部署验证。
-'@ | Set-Content -LiteralPath "$taskBundle/快速开始.txt" -Encoding utf8
-$taskZip = Join-Path $taskArtifacts 'weiming-xigu-windows-v0.2.zip'
-$taskAndroid = Join-Path $taskArtifacts 'weiming-xigu-android-v0.2.apk'
+"@ | Set-Content -LiteralPath "$taskBundle/快速开始.txt" -Encoding utf8
+$taskZip = Join-Path $taskArtifacts "weiming-xigu-windows-v$taskVersion.zip"
+$taskAndroid = Join-Path $taskArtifacts "weiming-xigu-android-v$taskVersion.apk"
 Compress-Archive -Path "$taskBundle/*" -DestinationPath $taskZip -Force
 Copy-Item -LiteralPath $taskApk -Destination $taskAndroid -Force
 @($taskZip,$taskAndroid) | ForEach-Object {
     $taskHash = Get-FileHash -LiteralPath $_ -Algorithm SHA256
     "$($taskHash.Hash.ToLower())  $([System.IO.Path]::GetFileName($_))"
-} | Set-Content -LiteralPath "$taskArtifacts/SHA256SUMS-v0.2.txt" -Encoding ascii
+} | Set-Content -LiteralPath "$taskArtifacts/SHA256SUMS-v$taskVersion.txt" -Encoding ascii
 Get-Item -LiteralPath $taskZip,$taskAndroid | Select-Object Name,Length
