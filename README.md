@@ -1,6 +1,6 @@
-# 未名溪谷 v0.4.3
+# 未名溪谷 v0.5.1
 
-Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留虚构演示，真实研究从空白工作区开始。第四轮新增按沪深 A 股代码查询近三年年报、批量下载和公告版本出处，接通已有 PDF 选页、AI 财务候选核验、多年度变化与复查流程。
+Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留虚构演示，真实研究从空白工作区开始。第五轮增加完整券商 CSV / 标准 JSON 持仓文件导入、逐页核对与 Windows 前台文件自动读取；保留按代码获取年报、财务核验、多年度比较和复查流程。
 
 ## 使用流程
 
@@ -11,9 +11,9 @@ Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留�
 5. 点击「AI 提取财务候选值」，选择发给模型的原文、报告期间和合并/母公司口径。逐项核对指标名称、原始数值、当前年度列及引用后，选择候选并勾选人工核验才保存。空字段保留为资料不足；利润和现金流允许负数。可继续人工录入；原文更正时新增，保留旧引用。「同期间财务比较」要求起止日期、单位和口径相同；「多年度财务变化」按期间类型与口径分组，金额统一为万元。相邻年度、每期唯一、原披露且基数为正时才计算同比，金融行业需专用口径。
 6. 在右上角「DeepSeek 本地设置」录入自己的密钥，检查连接并选择可用模型后保存。官方接口固定为 api.deepseek.com，模型 ID 可编辑，默认 deepseek-flash。密钥保存到 Windows DPAPI / Android Keystore 保护的安全存储，与研究备份分开。
 7. 点击真实研究卡的「生成 AI 草稿」，手动发送所选公司的原文与来源元数据。模型调用由自己的 DeepSeek 账户计费，不发送账户持仓。应用检查来源 ID 及逐字摘录；检查通过仍需人工确认原文是否支持判断。勾选核验后接受，才写入研究卡，同时在日志保留旧版本与接受版本。未接受的草稿只保留在当前窗口。
-8. 手动录入资金与持仓，保持所有价格对应同一估值日期。只有全部持仓均匹配唯一有效的自选行情、交易日相同且不早于现有估值日时，才能确认将日线价格应用到整个账户。部分更新或混合日期不会改变风险计算。
+8. 在「账户风控 → 导入券商持仓」选择完整 CSV / 标准 JSON，逐页核对新旧数量、市价、现金和将移除的旧持仓后确认。首次已有资金记录或来源改变时，额外确认入金、出金仍属同一账户；其他账户请先备份并新建空白工作区。导入保留资金流，不从资产推算本金。Windows 标准 JSON 可绑定同一文件，每15秒前台读取更新；文件需由券商导出或外部工具生成，应用尚无账户登录或直连。安卓支持手动导入。也可手动维护资金与持仓；所有价格使用同一估值日期，只有取得全部有效同日自选行情时才能确认更新估值。人工改动现金、持仓或估值日期后自动读取关闭。
 9. 在研究卡设置「复查计划与清单」，记录待验证条件、证据、人工状态和下次复查日期；到期在应用内提示。每次编辑研究或接受 AI 草稿保留旧快照，通过「研究版本对照」查看字段变化。
-10. 用 JSON 导出备份，在另一端粘贴导入。导入替换整个工作区，不自动合并；密钥需在另一设备重新配置。备份携带选页原文、财务证据、复查计划与研究历史，**不嵌入 PDF 原件**。原文件需单独传输，再用「重新关联原 PDF」核对 SHA-256；未关联时仍可阅读已保存文字。
+10. 用 JSON 导出备份，在另一端粘贴导入。导入替换整个工作区，不自动合并；成功恢复后关闭文件自动读取，需重新预览绑定。密钥需在另一设备重新配置。schema4 备份携带持仓来源、选页原文、财务证据、复查计划与研究历史，**不嵌入 PDF 原件、密钥或本机绑定路径**。原文件需单独传输，再用「重新关联原 PDF」核对 SHA-256；未关联时仍可阅读已保存文字。
 
 关联自选或原始资料后的研究卡保留公司代码与名称，仍可编辑研究内容；研究另一家公司时请新建研究卡，避免将原公司的证据用于新公司。
 
@@ -55,6 +55,8 @@ cd app
 
 `v04_acceptance_test.dart` 在真实磁盘工作区增加公告查询、下载失败与取消重试、选页核验、公告出处和去重，再核验两年财务、同比、复查计划及跨端备份。原生入口使用生产 PDF 引擎；目录响应与模型响应采用明确虚构夹具。`V04_EXPORT_FIXTURE` 与 `V04_IMPORT_FIXTURE` 分别指定 Windows 导出路径和另一端可读的同份文件路径。
 
+`v05_acceptance_test.dart` 使用独立磁盘快照、工作区和绑定设置，走通 CSV / JSON 人工确认、Windows 周期读取、错误保留、停止、备份重开及跨端恢复，断言资金、财务负值、公告出处和研究历史保持。文件选择注入虚构样例，不代表系统选择器或券商账户直连联调。
+
 ```powershell
 cd app
 ../.tools/flutter/bin/flutter.bat test integration_test/v03_acceptance_test.dart -d windows --dart-define=V03_EXPORT_FIXTURE=C:/temp/v03-backup.json
@@ -62,6 +64,8 @@ cd app
 ../.tools/flutter/bin/flutter.bat test integration_test/v03_acceptance_test.dart -d emulator-5574 --no-enable-impeller --dart-define=V03_IMPORT_FIXTURE=/data/local/tmp/v03-backup.json
 ../.tools/flutter/bin/flutter.bat test integration_test/v04_acceptance_test.dart -d windows --dart-define=V04_EXPORT_FIXTURE=C:/temp/v04-backup.json
 ../.tools/flutter/bin/flutter.bat test integration_test/v04_acceptance_test.dart -d emulator-5574 --no-enable-impeller --dart-define=V04_IMPORT_FIXTURE=/data/local/tmp/v04-backup.json
+../.tools/flutter/bin/flutter.bat test integration_test/v05_acceptance_test.dart -d windows --dart-define=V05_EXPORT_FIXTURE=C:/temp/v05-backup.json
+../.tools/flutter/bin/flutter.bat test integration_test/v05_acceptance_test.dart -d emulator-5574 --no-enable-impeller --dart-define=V05_IMPORT_FIXTURE=/data/local/tmp/v05-backup.json
 ```
 
 已在应用保存密钥后，可显式运行真实 DeepSeek 测试（会产生账户费用）：
@@ -77,7 +81,7 @@ cd app
 
 Android applicationId 保留 com.lianghua.lianghua_assistant，可覆盖安装测试签名相同的旧包。Windows 新 exe 为 weiming_xigu.exe，产品显示名更改后仍使用用户 APPDATA 下 com.lianghua/lianghua_assistant 目录。Android 继续使用应用支持目录。
 
-workspace.json 备份格式为 schemaVersion 3，兼容导入 v1/v2。首次读取旧主文件或仅剩的旧备份时，先保留原始字节至 workspace.json.v1.bak 或 .v2.bak，再保存新格式；已有原版本归档不会覆盖。每次保存保留 workspace.json.bak。主文件损坏时报告错误并保留，不用演示覆盖。主文件缺失时可读取备份。备份文本限制 800 万字符。单份 PDF 最多 25 MB、1000 页，选存最多 25 页/24 万字符，每次发给模型最多 6 万字符。
+workspace.json 备份格式为 schemaVersion 4，兼容导入 v1/v2/v3。首次读取旧主文件或仅剩的旧备份时，先保留原始字节至 workspace.json.v1.bak、.v2.bak 或 .v3.bak，再保存新格式；已有原版本归档不会覆盖。每次保存保留 workspace.json.bak。主文件损坏时报告错误并保留，不用演示覆盖。主文件缺失时可读取备份。备份文本限制 800 万字符。单份 PDF 最多 25 MB、1000 页，选存最多 25 页/24 万字符，每次发给模型最多 6 万字符。
 
 研究与持仓备份是明文，需自行妥善保存。Android 自动系统备份关闭，以免密钥密文在缺少 Keystore 的设备上恢复。卸载或清除应用数据前请手动导出研究资料。
 
@@ -89,4 +93,6 @@ Windows 便携包必须完整解压，保留 exe、DLL 与 data 一起使用。A
 
 自动获取使用巨潮公开网站的 HTTPS 接口，可能遇到访问限制、缺失公告或接口变化；界面显示错误与不完整结果，可以重试或手动导入。当前自动范围是沪深 A 股近三年年报正文，季报批量获取、OCR、全市场排名、系统后台通知、云端同步或自动交易留待后续。AI 仅整理选定资料；引用及数字存在于原文，并不证明指标含义、公司归属或本期列正确，仍须人工核对。修订公告的数字披露版本默认“未注明”，请核对重述口径后比较；其他设备需配置自己的密钥。
 
-本轮计划见 [v0.4 计划](docs/v0.4-plan.md)，历史验证见 [v0.4 验证记录](docs/v0.4-validation.md)，本次结果见 [v0.4.3 验收记录](docs/v0.4-acceptance.md)。第三轮和第二轮结果保留在 [v0.3.1 验收记录](docs/v0.3-acceptance.md)及 [v0.2.1 验收记录](docs/v0.2-acceptance.md)。
+本轮计划见 [v0.5 计划](docs/v0.5-plan.md)，文件格式见 [持仓导入说明](docs/broker-holdings-import.md)，历史验证见 [v0.5 原始记录](docs/v0.5-validation.md)，本次结果见 [v0.5.1 验收](docs/v0.5-acceptance.md)。前几轮记录保留在 [v0.4.3 验收](docs/v0.4-acceptance.md)、[v0.3.1 验收](docs/v0.3-acceptance.md)及 [v0.2.1 验收](docs/v0.2-acceptance.md)。
+
+后续 [v0.6 规划](docs/v0.6-plan.md)按用户要求继续采用单账户，重点为风险图表、导入历史、撤销和 CSV 兼容；量化规则研究与回测的阶段见 [量化与风险路线图](docs/quant-risk-roadmap.md)。当前仅完成规划，尚未在本分支实现。
