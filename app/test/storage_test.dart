@@ -90,6 +90,42 @@ void main() {
     expect((await reopened.load())!.cash, 12345);
     expect(WorkspaceData.decode(await store.backup.readAsString()).cash, 40000);
   });
+  test('backup-only schema3 migration archives exact bytes and preserves archive', () async {
+    final legacy = WorkspaceData.demo().copyWith(cash: 3210).toJson()
+      ..['schemaVersion'] = 3
+      ..remove('portfolioImport');
+    final original = utf8.encode(
+      '${const JsonEncoder.withIndent('  ').convert(legacy).replaceAll('\n', '\r\n')}\r\n',
+    );
+    await store.backup.writeAsBytes(original, flush: true);
+    final restored = (await store.load())!;
+    final archive = File('${store.file.path}.v3.bak');
+    expect(restored.cash, 3210);
+    expect(restored.portfolioImport, isNull);
+    expect(await archive.readAsBytes(), original);
+    expect(await store.backup.readAsBytes(), original);
+    expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
+    await store.save(restored.copyWith(cash: 4321));
+    expect(await archive.readAsBytes(), original);
+    await store.file.delete();
+    expect((await store.load())!.cash, 3210);
+    expect(await archive.readAsBytes(), original);
+  });
+  test(
+    'backup-only schema3 migration never replaces an existing original archive',
+    () async {
+      final archived = utf8.encode('{prior exact original}');
+      final archive = File('${store.file.path}.v3.bak');
+      await archive.writeAsBytes(archived, flush: true);
+      final legacy = WorkspaceData.demo().copyWith(cash: 7654).toJson()
+        ..['schemaVersion'] = 3
+        ..remove('portfolioImport');
+      await store.backup.writeAsString(jsonEncode(legacy), flush: true);
+      expect((await store.load())!.cash, 7654);
+      expect(await archive.readAsBytes(), archived);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
+    },
+  );
   test(
     'interrupted replacement recovers backup when primary file is absent',
     () async {
@@ -123,7 +159,7 @@ void main() {
       final archive = File('${store.file.path}.v1.bak');
       expect(await archive.readAsBytes(), original);
       expect(await store.backup.readAsBytes(), original);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 3);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
       expect((await LocalWorkspaceStore(directory).load())!.cash, 12345);
 
       await store.save(restored.copyWith(cash: 23456));
@@ -147,7 +183,7 @@ void main() {
 
       expect(await archive.readAsBytes(), archived);
       expect(await store.backup.readAsBytes(), original);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 3);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
     },
   );
   test(
@@ -193,7 +229,7 @@ void main() {
         final archive = File('${store.file.path}.v2.bak');
         expect(await archive.readAsBytes(), original);
         expect(await store.backup.readAsBytes(), original);
-        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 3);
+        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
         expect(
           (await LocalWorkspaceStore(directory).load())!.encode(),
           restored.encode(),
@@ -221,7 +257,7 @@ void main() {
 
       expect(await archive.readAsBytes(), archived);
       expect(await store.backup.readAsBytes(), incoming);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 3);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
     },
   );
   test(

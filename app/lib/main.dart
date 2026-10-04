@@ -14,6 +14,13 @@ import 'report_fetch.dart';
 import 'financial_widgets.dart';
 import 'review_widgets.dart';
 
+import 'dart:io';
+
+import 'broker_import.dart';
+import 'broker_sync.dart';
+import 'broker_widgets.dart';
+import 'portfolio_import_info.dart';
+
 void main() => runApp(const LianghuaApp());
 
 const ink = Color(0xFF152D35);
@@ -33,6 +40,8 @@ class LianghuaApp extends StatelessWidget {
     this.pdfImporter,
     this.reportFiles,
     this.reportFetcher,
+    this.brokerSettings,
+    this.brokerImporter,
   });
   final WorkspaceStore? store;
   final MarketService? market;
@@ -41,6 +50,8 @@ class LianghuaApp extends StatelessWidget {
   final PdfImportService? pdfImporter;
   final ReportFileStore? reportFiles;
   final ReportFetchService? reportFetcher;
+  final BrokerSettingsStore? brokerSettings;
+  final BrokerImportService? brokerImporter;
   final String? fontFamily;
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -75,6 +86,8 @@ class LianghuaApp extends StatelessWidget {
       pdfImporter: pdfImporter,
       reportFiles: reportFiles,
       reportFetcher: reportFetcher,
+      brokerSettings: brokerSettings,
+      brokerImporter: brokerImporter,
     ),
   );
 }
@@ -89,6 +102,8 @@ class WorkspaceScreen extends StatefulWidget {
     this.pdfImporter,
     this.reportFiles,
     this.reportFetcher,
+    this.brokerSettings,
+    this.brokerImporter,
   });
   final WorkspaceStore? store;
   final MarketService? market;
@@ -97,16 +112,21 @@ class WorkspaceScreen extends StatefulWidget {
   final PdfImportService? pdfImporter;
   final ReportFileStore? reportFiles;
   final ReportFetchService? reportFetcher;
+  final BrokerSettingsStore? brokerSettings;
+  final BrokerImportService? brokerImporter;
   @override
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
 }
 
-class _WorkspaceScreenState extends State<WorkspaceScreen> {
+class _WorkspaceScreenState extends State<WorkspaceScreen>
+    with WidgetsBindingObserver {
   WorkspaceStore? _store;
   WorkspaceData? _data;
   String? _error;
   bool _saving = false;
   bool _networkBusy = false;
+  bool _foreground = true, _brokerDialogBusy = false;
+  BrokerFileSync? _brokerSync;
   late final _market = widget.market ?? MarketService();
   late final _ai = widget.ai ?? DeepSeekService();
   late final _credentials = widget.credentials ?? SecureCredentialStore();
@@ -127,7 +147,24 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+  }
+
+  void _brokerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _brokerSync?.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -141,6 +178,26 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           _data = data;
           _error = null;
         });
+        if (_brokerSync == null &&
+            (Platform.isWindows || widget.brokerSettings != null)) {
+          _brokerSync = BrokerFileSync(
+            settingsStore:
+                widget.brokerSettings ??
+                (widget.store == null
+                    ? LocalBrokerSettingsStore()
+                    : MemoryBrokerSettingsStore()),
+            currentData: () => _data,
+            canApply: () =>
+                mounted &&
+                _foreground &&
+                !_saving &&
+                !_networkBusy &&
+                !_brokerDialogBusy &&
+                (ModalRoute.of(context)?.isCurrent ?? false),
+            save: (next) => _save(next, portfolioImporting: true),
+          )..addListener(_brokerChanged);
+          await _brokerSync!.initialize();
+        }
       }
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
@@ -153,8 +210,20 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     }
   }
 
-  Future<void> _save(WorkspaceData value) async {
-    if (_saving) return;
+  Future<bool> _save(
+    WorkspaceData value, {
+    bool portfolioImporting = false,
+  }) async {
+    if (_saving) return false;
+    final previous = _data;
+    if (!portfolioImporting &&
+        previous?.portfolioImport != null &&
+        value.portfolioImport?.digest == previous!.portfolioImport!.digest &&
+        portfolioFingerprint(previous) != portfolioFingerprint(value)) {
+      value = value.copyWith(
+        portfolioImport: value.portfolioImport!.markModified(),
+      );
+    }
     setState(() => _saving = true);
     try {
       WorkspaceData.decode(value.encode());
@@ -163,8 +232,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         setState(() => _data = value);
         _message('已保存到本机');
       }
+      if (_brokerSync?.settings != null &&
+          (value.portfolioImport == null ||
+              value.portfolioImport!.modified ||
+              value.portfolioImport!.identity !=
+                  _brokerSync!.settings!.identity)) {
+        try {
+          await _brokerSync!.stop();
+        } catch (_) {
+          _message('自动读取已暂停，设置保存失败，请重新核对文件绑定');
+        }
+      }
+      return true;
     } catch (e) {
       _message('保存失败，当前修改未应用：$e');
+      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -309,7 +391,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                               ),
                               Chip(
                                 label: Text(
-                                  data.isDemo ? '虚构模拟数据' : '手动录入 · 未核验',
+                                  data.isDemo
+                                      ? '虚构模拟数据'
+                                      : data.portfolioImport == null
+                                      ? '手动录入 · 未核验'
+                                      : '含持仓文件导入 · 研究待核验',
                                 ),
                                 avatar: const Icon(
                                   Icons.info_outline,
@@ -330,7 +416,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                           if (_page == 3) ..._reviews(data),
                           const SizedBox(height: 24),
                           const Text(
-                            'v0.4.3 · 按代码获取年报 · 财务核验与年度比较 · 研究版本与复查计划',
+                            'v0.5.1 · 券商持仓文件导入 · Windows 前台自动读取 · 财报研究与复查',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF647A80),
@@ -405,7 +491,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     _notice(
       d.isDemo
           ? '这里的企业、代码和价格全部是虚构示例。可以先体验功能，再从菜单新建空白工作区。'
-          : '当前数据来自手动录入，尚未核验。请保持所有持仓价格的估值日期一致。',
+          : d.portfolioImport == null
+          ? '当前数据来自手动录入，尚未核验。请保持所有持仓价格的估值日期一致。'
+          : '持仓来自文件导入，请核对券商与快照时间；研究资料仍需人工核验。',
     ),
   ];
 
@@ -647,6 +735,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           label: const Text('新增持仓'),
         ),
         OutlinedButton(onPressed: _accountDialog, child: const Text('账户设置')),
+        OutlinedButton.icon(
+          onPressed: d.isDemo ? null : _brokerImport,
+          icon: const Icon(Icons.account_balance_outlined),
+          label: const Text('导入券商持仓'),
+        ),
         if (!d.isDemo)
           OutlinedButton(
             onPressed: _applyQuotes,
@@ -654,6 +747,38 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           ),
       ],
     ),
+    const SizedBox(height: 16),
+    _panel('券商持仓导入', [
+      if (d.isDemo) const Text('真实持仓请先从菜单新建空白工作区。'),
+      if (d.portfolioImport == null)
+        const Text('可导入完整 CSV / 标准 JSON。账户直连尚待选定券商。')
+      else ...[
+        Text(
+          '${d.portfolioImport!.broker} · ${d.portfolioImport!.accountAlias} · ${d.portfolioImport!.format.toUpperCase()} 文件',
+        ),
+        Text('快照时间：${brokerTimeLabel(d.portfolioImport!.capturedAt)}'),
+        Text('上次导入：${brokerTimeLabel(d.portfolioImport!.importedAt)}'),
+        if (d.portfolioImport!.modified) const Text('导入后已人工修改或应用行情，自动读取已关闭。'),
+      ],
+      if (_brokerSync != null) ...[
+        const SizedBox(height: 8),
+        Text(_brokerSync!.status),
+        if (_brokerSync!.settings != null)
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton(
+                onPressed: _brokerSync!.check,
+                child: const Text('检查文件更新'),
+              ),
+              TextButton(
+                onPressed: _stopBrokerSync,
+                child: const Text('关闭自动读取'),
+              ),
+            ],
+          ),
+      ],
+    ]),
     const SizedBox(height: 16),
     _metrics(d),
     const SizedBox(height: 16),
@@ -794,6 +919,44 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         if (await _confirm('新建空白工作区？', '会替换当前工作区。请先导出需要保留的数据。')) {
           await _save(WorkspaceData.empty());
         }
+    }
+  }
+
+  Future<void> _stopBrokerSync() async {
+    try {
+      await _brokerSync?.stop();
+    } catch (_) {
+      _message('自动读取已暂停，但本地设置保存失败');
+    }
+  }
+
+  Future<void> _brokerImport() async {
+    if (_brokerDialogBusy || _saving) return;
+    _brokerDialogBusy = true;
+    try {
+      final selected = await showDialog<BrokerImportSelection>(
+        context: context,
+        builder: (_) =>
+            BrokerImportDialog(data: _data!, importer: widget.brokerImporter),
+      );
+      if (selected == null || !mounted) return;
+      final next = applyBrokerSnapshot(
+        _data!,
+        selected.snapshot,
+        sourceChangeConfirmed: selected.sourceChangeConfirmed,
+      );
+      if (!await _save(next, portfolioImporting: true) || !mounted) return;
+      if (selected.automatic) {
+        await _brokerSync?.bind(selected.path, selected.snapshot);
+      } else {
+        await _brokerSync?.stop();
+      }
+    } on FormatException catch (e) {
+      _message('导入未应用：${e.message}');
+    } catch (_) {
+      _message('持仓已保存时可继续使用；自动读取配置失败，请重新绑定文件');
+    } finally {
+      _brokerDialogBusy = false;
     }
   }
 
@@ -959,21 +1122,27 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   );
 
   Future<void> _backupDialog(bool importing) async {
-    final parsed = await showDialog<WorkspaceData>(
-      context: context,
-      builder: (_) => BackupDialog(
-        data: _data!,
-        importing: importing,
-        onCopied: () => _message('备份已复制到剪贴板'),
-      ),
-    );
-    if (parsed != null &&
-        mounted &&
-        await _confirm(
-          '替换当前工作区？',
-          '备份包含 ${parsed.holdings.length} 项持仓、${parsed.studies.length} 张研究卡和 ${parsed.reviews.length} 条复查记录。',
-        )) {
-      await _save(parsed);
+    if (importing && (_brokerDialogBusy || _saving)) return;
+    if (importing) _brokerDialogBusy = true;
+    try {
+      final parsed = await showDialog<WorkspaceData>(
+        context: context,
+        builder: (_) => BackupDialog(
+          data: _data!,
+          importing: importing,
+          onCopied: () => _message('备份已复制到剪贴板'),
+        ),
+      );
+      if (parsed != null &&
+          mounted &&
+          await _confirm(
+            '替换当前工作区？',
+            '备份包含 ${parsed.holdings.length} 项持仓、${parsed.studies.length} 张研究卡和 ${parsed.reviews.length} 条复查记录。恢复后关闭文件自动读取，需重新预览并绑定。',
+          )) {
+        if (await _save(parsed)) await _stopBrokerSync();
+      }
+    } finally {
+      if (importing) _brokerDialogBusy = false;
     }
   }
 

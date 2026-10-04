@@ -25,11 +25,19 @@ Get-ChildItem -LiteralPath "$($taskRuntime.FullName)/x64/Microsoft.VC143.CRT" -F
     Copy-Item -LiteralPath $_.FullName -Destination $taskBundle -Force
 }
 Copy-Item -LiteralPath "$taskRoot/README.md" -Destination "$taskBundle/README.md" -Force
+if (Test-Path -LiteralPath "$taskRoot/docs/broker-holdings-import.md") {
+    New-Item -ItemType Directory -Path "$taskBundle/docs" -Force | Out-Null
+    Copy-Item -LiteralPath "$taskRoot/docs/broker-holdings-import.md" -Destination "$taskBundle/docs" -Force
+    New-Item -ItemType Directory -Path "$taskBundle/examples" -Force | Out-Null
+    Get-ChildItem -LiteralPath "$taskRoot/examples" -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination "$taskBundle/examples" -Force
+    }
+}
 @"
 未名溪谷 v$taskVersion
 
 Windows：完整解压后双击 weiming_xigu.exe，保留 DLL 与 data 目录。
-原 Windows 数据目录继续使用 APPDATA/com.lianghua/lianghua_assistant，旧版会自动迁移并保留 v1/v2 备份。
+原 Windows 数据目录继续使用 APPDATA/com.lianghua/lianghua_assistant，旧版会自动迁移并保留 v1/v2/v3 备份。
 Android：安装 weiming-xigu-android-v$taskVersion.apk，可覆盖相同测试签名的旧包；卸载前先导出备份。
 
 从默认演示体验；真实研究请在菜单新建空白工作区，再添加真实自选。
@@ -40,6 +48,10 @@ DeepSeek 密钥在「数据与设置 → DeepSeek 本地设置」录入。密钥
 JSON 备份携带选页原文和公告出处，原 PDF 需单独复制并重新关联。北交所自动获取、季报批量获取与 OCR 尚未实现。
 研究卡可查看多年度变化、保存复查计划、对照历史研究版本。
 行情须手动刷新，只有全部持仓取得同一天的有效日线时才可确认更新账户估值。
+账户风控可导入完整券商 CSV / 标准 JSON，逐页预览并核对账户、现金、日期和持仓后确认；已有资金流需核对归属。
+Windows 标准 JSON 可绑定同一文件，每 15 秒前台读取外部工具更新；Android 手动导入。文件需由券商导出或外部工具生成，当前没有券商登录和账户直连。
+人工修改持仓、现金、日期或应用行情后关闭自动读取，需要重新预览绑定。导入保留入金与出金，不从资产推算本金。
+导入说明见 docs/broker-holdings-import.md，examples 中样例全部为虚构数据。
 JSON 导入会替换工作区，建议先导出当前资料。
 
 Android 为测试签名包，Windows 尚未进行其他电脑的完整部署验证。

@@ -421,7 +421,7 @@ void registerV03Acceptance({bool native = false}) {
           .controller!
           .text;
       final exported = WorkspaceData.decode(backup);
-      expect(exported.toJson()['schemaVersion'], 3);
+      expect(exported.toJson()['schemaVersion'], 4);
       expect(backup, isNot(contains(_sentinel)));
       expect(backup, isNot(contains('originalBase64')));
       expect(exported.reviews.last.text, _review);
@@ -505,7 +505,7 @@ void registerV03Acceptance({bool native = false}) {
       // ignore: avoid_print
       print(
         'V03_ACCEPTANCE platform=${Platform.operatingSystem} nativePdf=$native '
-        'schema=3 documents=1 sources=2 financials=1 history=1 '
+        'schema=4 documents=1 sources=2 financials=1 history=1 '
         'reviewTasks=1 assets=${restored.assets} profit=${restored.profitRate} '
         'textWithoutPdf=true wrongRelinkRejected=true originalRendered=true '
         'exchange=${_importFixture.isNotEmpty}',
