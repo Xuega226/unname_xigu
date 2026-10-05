@@ -51,7 +51,7 @@ void main() {
     );
     final reopened = WorkspaceData.decode(imported.encode());
     expect(reopened.encode(), imported.encode());
-    expect(reopened.toJson()['schemaVersion'], 6);
+    expect(reopened.toJson()['schemaVersion'], 7);
     expect(reopened.portfolioHistory.single.before!.assets, 220);
     expect(reopened.portfolioHistory.single.after!.assets, 560);
     expect(

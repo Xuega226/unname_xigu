@@ -4,6 +4,8 @@ import 'research.dart';
 import 'reports.dart';
 import 'portfolio_import_info.dart';
 import 'portfolio_history.dart';
+import 'quant_models.dart';
+import 'data_foundation.dart';
 
 double _number(Map<String, dynamic> json, String key, {double minimum = 0}) {
   final value = json[key];
@@ -242,6 +244,9 @@ class WorkspaceData {
     this.studyVersions = const [],
     this.portfolioImport,
     this.portfolioHistory = const [],
+    this.quant = const QuantState(),
+    this.priceHistory = const [],
+    this.funding,
   });
   final bool isDemo;
   final double cash, deposits, withdrawals, lossBudget;
@@ -256,6 +261,9 @@ class WorkspaceData {
   final List<StudyVersion> studyVersions;
   final PortfolioImportInfo? portfolioImport;
   final List<PortfolioHistoryEntry> portfolioHistory;
+  final QuantState quant;
+  final List<PriceHistory> priceHistory;
+  final FundingLedger? funding;
   double get principal => deposits - withdrawals;
   double get stocks => holdings.fold(0, (sum, h) => sum + h.marketValue);
   double get assets => cash + stocks;
@@ -300,6 +308,10 @@ class WorkspaceData {
     PortfolioImportInfo? portfolioImport,
     bool clearPortfolioImport = false,
     List<PortfolioHistoryEntry>? portfolioHistory,
+    QuantState? quant,
+    List<PriceHistory>? priceHistory,
+    FundingLedger? funding,
+    bool clearFunding = false,
   }) => WorkspaceData(
     isDemo: isDemo ?? this.isDemo,
     cash: cash ?? this.cash,
@@ -319,9 +331,12 @@ class WorkspaceData {
         ? null
         : portfolioImport ?? this.portfolioImport,
     portfolioHistory: portfolioHistory ?? this.portfolioHistory,
+    quant: quant ?? this.quant,
+    priceHistory: priceHistory ?? this.priceHistory,
+    funding: clearFunding ? null : funding ?? this.funding,
   );
   Map<String, dynamic> toJson() => {
-    'schemaVersion': 6,
+    'schemaVersion': 7,
     'isDemo': isDemo,
     'cash': cash,
     'deposits': deposits,
@@ -338,6 +353,9 @@ class WorkspaceData {
     'studyVersions': studyVersions.map((r) => r.toJson()).toList(),
     'portfolioImport': portfolioImport?.toJson(),
     'portfolioHistory': portfolioHistory.map((e) => e.toJson()).toList(),
+    'quant': quant.toJson(),
+    'priceHistory': priceHistory.map((e) => e.toJson()).toList(),
+    'funding': funding?.toJson(),
   };
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
   factory WorkspaceData.decode(String raw) {
@@ -346,10 +364,10 @@ class WorkspaceData {
     }
     final j = jsonDecode(raw);
     if (j is! Map<String, dynamic> ||
-        ![1, 2, 3, 4, 6].contains(j['schemaVersion']) ||
+        ![1, 2, 3, 4, 6, 7].contains(j['schemaVersion']) ||
         j['isDemo'] is! bool) {
       throw const FormatException(
-        '不是支持的备份格式（支持 schemaVersion 1、2、3、4、6；不支持多账户格式 5）',
+        '不是支持的备份格式（支持 schemaVersion 1、2、3、4、6、7；不支持多账户格式 5）',
       );
     }
     List<T> records<T>(String key, T Function(Map<String, dynamic>) parse) {
@@ -407,11 +425,49 @@ class WorkspaceData {
                   : throw const FormatException('持仓导入记录格式无效'),
             )
           : null,
-      portfolioHistory: j['schemaVersion'] == 6
+      portfolioHistory: j['schemaVersion'] >= 6
           ? records('portfolioHistory', PortfolioHistoryEntry.fromJson)
           : const [],
+      quant: j['schemaVersion'] == 7
+          ? QuantState.fromJson(
+              j['quant'] is Map<String, dynamic>
+                  ? j['quant'] as Map<String, dynamic>
+                  : throw const FormatException('量化配置格式无效'),
+            )
+          : const QuantState(),
+      priceHistory: j['schemaVersion'] == 7
+          ? records('priceHistory', PriceHistory.fromJson)
+          : const [],
+      funding: j['schemaVersion'] == 7 && j['funding'] != null
+          ? FundingLedger.fromJson(
+              j['funding'] is Map<String, dynamic>
+                  ? j['funding'] as Map<String, dynamic>
+                  : throw const FormatException('带日期资金记录格式无效'),
+            )
+          : null,
     );
     validatePortfolioHistory(result.portfolioHistory);
+    QuantState.fromJson(result.quant.toJson());
+    if (result.priceHistory.length > 10 ||
+        result.priceHistory.map((p) => p.symbol).toSet().length !=
+            result.priceHistory.length) {
+      throw const FormatException('最多10份历史行情，同一证券不能重复');
+    }
+    if (result.funding != null) {
+      final ledger = result.funding!;
+      bool same(double a, double b) => (a - b).abs() <= 0.000001;
+      if (!same(ledger.deposits, result.deposits) ||
+          !same(ledger.withdrawals, result.withdrawals)) {
+        throw const FormatException('累计入金/出金与带日期资金记录不一致');
+      }
+    }
+    if (result.isDemo &&
+        (result.quant.versions.isNotEmpty ||
+            result.quant.shareFacts.isNotEmpty ||
+            result.priceHistory.isNotEmpty ||
+            result.funding != null)) {
+      throw const FormatException('真实量化与资金记录不可混入演示工作区');
+    }
     if (result.isDemo && result.portfolioHistory.isNotEmpty) {
       throw const FormatException('真实持仓历史不可混入演示工作区');
     }
@@ -428,6 +484,14 @@ class WorkspaceData {
     }
     final studiesById = {for (final s in result.studies) s.id: s};
     final sourcesById = {for (final s in result.sources) s.id: s};
+    for (final fact in result.quant.shareFacts) {
+      final source = sourcesById[fact.sourceId];
+      if (source == null ||
+          studiesById[source.studyId]?.code != fact.symbol.split(':').last ||
+          source.disclosedAt != fact.disclosedAt) {
+        throw const FormatException('总股本的公司、来源或披露日期不一致');
+      }
+    }
     final documentsById = {for (final d in result.documents) d.id: d};
     final identities = <String>{};
     final announcements = <String>{};

@@ -23,6 +23,9 @@ import 'portfolio_import_info.dart';
 import 'portfolio_history.dart';
 import 'portfolio_history_widgets.dart';
 import 'risk_charts.dart';
+import 'quant_widgets.dart';
+import 'data_foundation.dart';
+import 'data_foundation_widgets.dart';
 
 void main() => runApp(const LianghuaApp());
 
@@ -45,6 +48,7 @@ class LianghuaApp extends StatelessWidget {
     this.reportFetcher,
     this.brokerSettings,
     this.brokerImporter,
+    this.historyService,
   });
   final WorkspaceStore? store;
   final MarketService? market;
@@ -55,6 +59,7 @@ class LianghuaApp extends StatelessWidget {
   final ReportFetchService? reportFetcher;
   final BrokerSettingsStore? brokerSettings;
   final BrokerImportService? brokerImporter;
+  final MarketHistoryService? historyService;
   final String? fontFamily;
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -91,6 +96,7 @@ class LianghuaApp extends StatelessWidget {
       reportFetcher: reportFetcher,
       brokerSettings: brokerSettings,
       brokerImporter: brokerImporter,
+      historyService: historyService,
     ),
   );
 }
@@ -107,6 +113,7 @@ class WorkspaceScreen extends StatefulWidget {
     this.reportFetcher,
     this.brokerSettings,
     this.brokerImporter,
+    this.historyService,
   });
   final WorkspaceStore? store;
   final MarketService? market;
@@ -117,6 +124,7 @@ class WorkspaceScreen extends StatefulWidget {
   final ReportFetchService? reportFetcher;
   final BrokerSettingsStore? brokerSettings;
   final BrokerImportService? brokerImporter;
+  final MarketHistoryService? historyService;
   @override
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
 }
@@ -139,13 +147,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       ? LocalReportFileStore.create()
       : Future<ReportFileStore>.value(widget.reportFiles);
   int _page = 0;
+  String? _focusedStudyId;
+  final _contentScroll = ScrollController();
   double _stress = .3;
-  final titles = const ['研究总览', '公司研究', '账户风控', '复查日志'];
+  final titles = const ['研究总览', '公司研究', '账户风控', '复查日志', '量化研究'];
   final icons = const [
     Icons.space_dashboard_outlined,
     Icons.business_outlined,
     Icons.shield_outlined,
     Icons.edit_note_outlined,
+    Icons.calculate_outlined,
   ];
   @override
   void initState() {
@@ -167,6 +178,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _brokerSync?.dispose();
+    _contentScroll.dispose();
     super.dispose();
   }
 
@@ -275,6 +287,33 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       ) ??
       false;
 
+  void _navigate(int page, {String? studyId}) {
+    setState(() {
+      _page = page;
+      _focusedStudyId = studyId;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _contentScroll.hasClients) _contentScroll.jumpTo(0);
+    });
+  }
+
+  Future<bool> _saveQuant(WorkspaceData next) async {
+    if (_data == null) return false;
+    return _save(_data!.copyWith(quant: next.quant));
+  }
+
+  Future<bool> _saveDataFoundation(WorkspaceData next) async {
+    if (_data == null) return false;
+    return _save(
+      _data!.copyWith(
+        priceHistory: next.priceHistory,
+        funding: next.funding,
+        deposits: next.funding?.deposits ?? _data!.deposits,
+        withdrawals: next.funding?.withdrawals ?? _data!.withdrawals,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
@@ -341,9 +380,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           ? null
           : NavigationBar(
               selectedIndex: _page,
-              onDestinationSelected: (i) => setState(() => _page = i),
+              onDestinationSelected: (i) => _navigate(i),
               destinations: List.generate(
-                4,
+                titles.length,
                 (i) => NavigationDestination(
                   icon: Icon(icons[i]),
                   label: titles[i],
@@ -360,9 +399,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
               labelType: MediaQuery.sizeOf(context).width >= 1100
                   ? null
                   : NavigationRailLabelType.all,
-              onDestinationSelected: (i) => setState(() => _page = i),
+              onDestinationSelected: (i) => _navigate(i),
               destinations: List.generate(
-                4,
+                titles.length,
                 (i) => NavigationRailDestination(
                   icon: Icon(icons[i]),
                   label: Text(titles[i]),
@@ -373,6 +412,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             child: AbsorbPointer(
               absorbing: _saving || _networkBusy,
               child: ListView(
+                controller: _contentScroll,
                 padding: EdgeInsets.all(desktop ? 28 : 16),
                 children: [
                   Center(
@@ -417,9 +457,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                           if (_page == 1) ..._studies(data),
                           if (_page == 2) ..._risk(data),
                           if (_page == 3) ..._reviews(data),
+                          if (_page == 4) ..._quant(data),
                           const SizedBox(height: 24),
                           const Text(
-                            'v0.6.1 · 风险图表 · 单账户导入历史与撤销 · 财报研究与复查',
+                            'v0.7.1 · 可配置因子规则与评分 · 历史行情与资金流水 · 单账户风控',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF647A80),
@@ -607,6 +648,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   );
 
   List<Widget> _studies(WorkspaceData d) => [
+    if (_focusedStudyId != null)
+      TextButton(onPressed: () => _navigate(1), child: const Text('返回全部公司研究')),
     Wrap(
       spacing: 12,
       runSpacing: 8,
@@ -624,7 +667,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       ],
     ),
     const SizedBox(height: 16),
-    _watchlist(d),
+    if (_focusedStudyId == null) _watchlist(d),
     const SizedBox(height: 12),
     OutlinedButton(
       onPressed: () => showDialog<void>(
@@ -635,7 +678,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     ),
     const SizedBox(height: 16),
     if (d.studies.isEmpty) _notice('还没有研究卡。先添加一家公司，并记录你为什么想研究它。'),
-    for (final s in d.studies) ...[
+    for (final s in d.studies.where(
+      (study) => _focusedStudyId == null || study.id == _focusedStudyId,
+    )) ...[
       _panel(
         '${s.name} · ${s.code}',
         [
@@ -864,6 +909,27 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     PortfolioHistoryPanel(data: d, onRestore: _restorePortfolio),
   ];
 
+  List<Widget> _quant(WorkspaceData d) => [
+    if (d.isDemo)
+      _notice('当前是虚构演示。请从数据与设置新建空白工作区，再添加自选公司和核验资料；量化示例不会自动启用。')
+    else ...[
+      QuantResearchPanel(
+        data: d,
+        onSave: _saveQuant,
+        onOpenResearch: (studyId) => _navigate(
+          1,
+          studyId: d.studies.any((s) => s.id == studyId) ? studyId : null,
+        ),
+      ),
+      const SizedBox(height: 16),
+      QuantDataPanel(
+        data: d,
+        onSave: _saveDataFoundation,
+        historyService: widget.historyService,
+      ),
+    ],
+  ];
+
   List<Widget> _reviews(WorkspaceData d) => [
     FilledButton.icon(
       onPressed: _reviewDialog,
@@ -1015,18 +1081,36 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
 
   Future<void> _accountDialog() async {
     final d = _data!;
-    final values = await _form('账户设置', [
-      InputField('现金（元）', '${d.cash}', numeric: true),
-      InputField('累计入金（元）', '${d.deposits}', numeric: true),
-      InputField('累计出金（元）', '${d.withdrawals}', numeric: true),
-      InputField(
-        '可承受暂时亏损（%）',
-        '${d.lossBudget * 100}',
-        numeric: true,
-        max: 100,
-      ),
-      InputField('价格估值日期（YYYY-MM-DD）', d.priceDate, date: true),
-    ], note: '入金和出金是账户资金流，不是买卖股票金额。初版仅支持现金和股票，不包含融资负债。');
+    final values = await _form(
+      '账户设置',
+      [
+        InputField('现金（元）', '${d.cash}', numeric: true),
+        InputField(
+          '累计入金（元）',
+          '${d.deposits}',
+          numeric: true,
+          readOnly: d.funding != null,
+          readOnlyMessage: '累计资金由流水维护，请在量化研究页更新资金记录',
+        ),
+        InputField(
+          '累计出金（元）',
+          '${d.withdrawals}',
+          numeric: true,
+          readOnly: d.funding != null,
+          readOnlyMessage: '累计资金由流水维护，请在量化研究页更新资金记录',
+        ),
+        InputField(
+          '可承受暂时亏损（%）',
+          '${d.lossBudget * 100}',
+          numeric: true,
+          max: 100,
+        ),
+        InputField('价格估值日期（YYYY-MM-DD）', d.priceDate, date: true),
+      ],
+      note: d.funding == null
+          ? '入金和出金是账户资金流，不是买卖股票金额。仅支持现金和股票，不包含融资负债。'
+          : '累计入金、出金已由量化研究页的带日期资金记录维护。资金记录不自动改变现金余额，请用完整账户快照核对现金。',
+    );
     if (values != null) {
       await _save(
         d.copyWith(
@@ -1190,7 +1274,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           mounted &&
           await _confirm(
             '替换当前工作区？',
-            '备份包含 ${parsed.holdings.length} 项持仓、${parsed.studies.length} 张研究卡和 ${parsed.reviews.length} 条复查记录。恢复后关闭文件自动读取，需重新预览并绑定。',
+            '备份包含 ${parsed.holdings.length} 项持仓、${parsed.studies.length} 张研究卡、${parsed.reviews.length} 条复查记录、${parsed.quant.versions.length} 版量化参数、${parsed.priceHistory.length} 份历史行情和 ${parsed.funding?.entries.length ?? 0} 条资金流水。恢复会替换这些记录，随后关闭文件自动读取，需重新预览并绑定。',
           )) {
         // Persist a guard with the restored workspace before attempting to
         // remove a live binding. If settings removal fails, reopening cannot

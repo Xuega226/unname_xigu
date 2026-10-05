@@ -725,7 +725,7 @@ void registerV05Acceptance({bool native = false, bool v06 = false}) {
           .controller!
           .text;
       final exported = WorkspaceData.decode(backup);
-      expect(exported.toJson()['schemaVersion'], 6);
+      expect(exported.toJson()['schemaVersion'], 7);
       expect(backup, isNot(contains(file.path)));
       expect(backup, isNot(contains(_sentinel)));
       expect(backup, isNot(contains(base64Encode(pdf))));
@@ -854,7 +854,7 @@ void registerV05Acceptance({bool native = false, bool v06 = false}) {
       expect((await _read(tester, csvStore)).encode(), csvResult.encode());
       // ignore: avoid_print
       print(
-        '${v06 ? 'V06' : 'V05'}_ACCEPTANCE platform=${Platform.operatingSystem} native=$native schema=6 json=true csv=true gbkMapping=$v06 riskCharts=$v06 historyUndo=$v06 cancelNoWrite=true protectedResearch=true origin=true negativeCashFlow=-20 portableRestore=true bindingPathAbsent=true stoppedNoWrite=true windowsSync=${Platform.isWindows} crossPlatform=${importFixture.isNotEmpty} assets=${restored.assets} principal=${restored.principal}',
+        '${v06 ? 'V06' : 'V05'}_ACCEPTANCE platform=${Platform.operatingSystem} native=$native schema=7 json=true csv=true gbkMapping=$v06 riskCharts=$v06 historyUndo=$v06 cancelNoWrite=true protectedResearch=true origin=true negativeCashFlow=-20 portableRestore=true bindingPathAbsent=true stoppedNoWrite=true windowsSync=${Platform.isWindows} crossPlatform=${importFixture.isNotEmpty} assets=${restored.assets} principal=${restored.principal}',
       );
       await tester.pumpWidget(const SizedBox());
       await _settle(tester);

@@ -11,14 +11,16 @@ class InputField {
       this.date = false,
       this.signed = false,
       this.readOnly = false,
+      this.readOnlyMessage = '公司已有资料关联，请为其他公司新建研究卡',
       this.max});
   final String label, value;
+  final String readOnlyMessage;
   final bool numeric, multiline, optional, integer, date, signed, readOnly;
   final double? max;
   String? validate(String raw) {
     final value = raw.trim();
-    if (readOnly && value != this.value.trim()) {
-      return '公司已有资料关联，请为其他公司新建研究卡';
+    if (readOnly) {
+      return value == this.value.trim() ? null : readOnlyMessage;
     }
     if (value.isEmpty) return optional ? null : '请填写$label';
     if (numeric) {
@@ -143,8 +145,8 @@ class _BackupDialogState extends State<BackupDialog> {
               child: SingleChildScrollView(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(widget.importing
-                    ? '粘贴另一端导出的 JSON。导入会替换当前工作区，建议先备份。'
-                    : '复制 JSON 后保存到文本文件，或在另一端粘贴导入。备份包含研究和持仓记录，请自行妥善保存。'),
+                    ? '粘贴另一端导出的 JSON。导入会替换当前工作区，包括研究、持仓、量化参数、历史行情和资金流水，建议先备份。'
+                    : '复制 JSON 后保存到文本文件，或在另一端粘贴导入。备份包含研究、持仓、量化参数、历史行情和资金流水，请自行妥善保存。'),
                 const SizedBox(height: 16),
                 TextField(
                     controller: controller,
