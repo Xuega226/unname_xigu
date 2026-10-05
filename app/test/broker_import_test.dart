@@ -181,14 +181,15 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('broker_identity_');
       final file = File('${dir.path}/snapshot.json');
       final settings = MemoryBrokerSettingsStore();
-      final data = applyBrokerSnapshot(WorkspaceData.empty(), snapshot());
+      var data = applyBrokerSnapshot(WorkspaceData.empty(), snapshot());
       var saves = 0;
       final sync = BrokerFileSync(
         settingsStore: settings,
         currentData: () => data,
         canApply: () => true,
-        save: (_) async {
+        save: (next) async {
           saves++;
+          data = next;
           return true;
         },
       );
@@ -196,7 +197,9 @@ void main() {
         await file.writeAsBytes(snapshotBytes(alias: '另一个账户'));
         await sync.bind(file.path, snapshot());
         await sync.check();
-        expect(saves, 0);
+        expect(saves, 1);
+        expect(data.holdings.single.quantity, 100);
+        expect(data.portfolioHistory.single.errorCode, 'source_changed');
         expect(settings.value, isNull);
         expect(sync.settings, isNull);
         expect(sync.status, contains('重新预览'));
@@ -349,7 +352,7 @@ void main() {
       isEmpty,
     );
   });
-  test('v3 disk migration keeps original bytes before writing v4', () async {
+  test('v3 disk migration keeps original bytes before writing current schema', () async {
     final dir = await Directory.systemTemp.createTemp('broker_migration_');
     try {
       final store = LocalWorkspaceStore(dir);
@@ -361,7 +364,7 @@ void main() {
       final result = await store.load();
       expect(result!.studies.length, 5);
       expect(await File('${store.file.path}.v3.bak').readAsString(), raw);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 4);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 6);
     } finally {
       await dir.delete(recursive: true);
     }
@@ -397,17 +400,22 @@ void main() {
       active = true;
       fail = true;
       await sync.check();
-      expect(saves, 1);
+      expect(saves, 2); // Portfolio save and best-effort safe failure record.
       expect(data.holdings.single.quantity, 100);
       fail = false;
       await sync.check();
-      expect(saves, 2);
+      expect(saves, 3);
       expect(data.holdings.single.quantity, 200);
+      expect(data.portfolioHistory.single.action, 'import');
       await sync.check();
-      expect(saves, 2);
+      expect(saves, 3);
       await file.writeAsString('{incomplete');
       await sync.check();
-      expect(saves, 2);
+      expect(saves, 4);
+      expect(data.holdings.single.quantity, 200);
+      expect(data.portfolioHistory.last.errorCode, 'invalid_snapshot');
+      await sync.check();
+      expect(saves, 4); // The same failure is not written repeatedly.
       expect(sync.status, contains('旧数据已保留'));
       final restored = BrokerFileSync(
         settingsStore: settings,

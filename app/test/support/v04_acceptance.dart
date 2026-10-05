@@ -230,7 +230,14 @@ Future<void> _settle(WidgetTester tester) async {
         ? find.byType(type)
         : find.descendant(of: humanReview, matching: find.byType(type));
     if (progress(CircularProgressIndicator).evaluate().isEmpty &&
-        progress(LinearProgressIndicator).evaluate().isEmpty) {
+        !tester
+            .widgetList<LinearProgressIndicator>(
+              progress(LinearProgressIndicator),
+            )
+            .any(
+              (indicator) =>
+                  indicator.value == null || humanReview.evaluate().isNotEmpty,
+            )) {
       if (humanReview.evaluate().isNotEmpty) {
         // Underlying indeterminate queue progress prevents pumpAndSettle.
         await tester.pump(const Duration(milliseconds: 300));
@@ -620,7 +627,7 @@ void registerV04Acceptance({bool native = false}) {
           .controller!
           .text;
       final exported = WorkspaceData.decode(backup);
-      expect(exported.toJson()['schemaVersion'], 4);
+      expect(exported.toJson()['schemaVersion'], 6);
       expect(backup, isNot(contains(_sentinel)));
       expect(backup, isNot(contains('originalBase64')));
       expect(backup, isNot(contains(base64Encode(bytes))));
@@ -719,7 +726,7 @@ void registerV04Acceptance({bool native = false}) {
       // ignore: avoid_print
       print(
         'V04_ACCEPTANCE platform=${Platform.operatingSystem} nativePdf=$native '
-        'schema=4 documents=1 sources=3 financials=2 history=1 '
+        'schema=6 documents=1 sources=3 financials=2 history=1 '
         'reviewTasks=1 assets=${restored.assets} profit=${restored.profitRate} '
         'textWithoutPdf=true wrongRelinkRejected=true originalRendered=true '
         'originPreserved=true duplicatePrevented=true retry=true '

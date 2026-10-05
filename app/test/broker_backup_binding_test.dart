@@ -24,6 +24,16 @@ class _FailingStore extends MemoryWorkspaceStore {
   }
 }
 
+class _LockedBindingStore extends MemoryBrokerSettingsStore {
+  @override
+  Future<void> write(BrokerFileSettings? settings) async {
+    if (settings == null) {
+      throw const FileSystemException('isolated binding delete failure');
+    }
+    await super.write(settings);
+  }
+}
+
 Future<void> _tap(WidgetTester tester, Finder target) async {
   await tester.ensureVisible(target);
   await tester.pumpAndSettle();
@@ -90,6 +100,9 @@ void main() {
     'same-account backup restore clears binding and cannot be overwritten by a timer',
     (tester) async {
       final (file, backup, current, settings) = await _fixture(tester);
+      final recovered = backup.copyWith(
+        portfolioImport: backup.portfolioImport!.markModified(),
+      );
       final store = _FailingStore(current);
       await tester.pumpWidget(
         LianghuaApp(store: store, brokerSettings: settings),
@@ -103,7 +116,7 @@ void main() {
 
       await _tap(tester, find.text('检查并导入'));
       await _tap(tester, find.text('确认'));
-      expect(store.data!.encode(), backup.encode());
+      expect(store.data!.encode(), recovered.encode());
       expect(settings.value, isNull);
 
       await tester.runAsync(
@@ -114,8 +127,60 @@ void main() {
       );
       await tester.pump(const Duration(seconds: 31));
       await _allowDiskRead(tester);
-      expect(store.data!.encode(), backup.encode());
+      expect(store.data!.encode(), recovered.encode());
       expect(store.data!.principal, current.principal);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'failed binding deletion cannot resume overwriting restored backup after reopening',
+    (tester) async {
+      final (file, backup, current, oldSettings) = await _fixture(tester);
+      final settings = _LockedBindingStore()..value = oldSettings.value;
+      final originalBinding = settings.value;
+      final store = _FailingStore(current);
+      await tester.pumpWidget(
+        LianghuaApp(store: store, brokerSettings: settings),
+      );
+      await tester.pumpAndSettle();
+      await _openRestore(tester, backup);
+      await _tap(tester, find.text('检查并导入'));
+      await _tap(tester, find.text('确认'));
+      expect(settings.value, same(originalBinding));
+      expect(store.data!.portfolioImport!.modified, isTrue);
+      expect(store.data!.cash, backup.cash);
+      expect(
+        store.data!.holdings.single.quantity,
+        backup.holdings.single.quantity,
+      );
+      final restoredFingerprint = portfolioFingerprint(store.data!);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      await tester.runAsync(
+        () => file.writeAsBytes(
+          snapshotBytes(quantity: 300, capturedAt: '2026-10-01T11:00:00+08:00'),
+          flush: true,
+        ),
+      );
+      // This settings object represents the old on-disk binding whose deletion
+      // failed. A new app instance reads that binding again after restart.
+      await tester.pumpWidget(
+        LianghuaApp(store: store, brokerSettings: settings),
+      );
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 31));
+      await _allowDiskRead(tester);
+      expect(portfolioFingerprint(store.data!), restoredFingerprint);
+      expect(store.data!.portfolioImport!.modified, isTrue);
+      expect(store.data!.principal, backup.principal);
+      expect(
+        store.data!.portfolioHistory.where((event) => event.action == 'import'),
+        isEmpty,
+      );
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();
     },

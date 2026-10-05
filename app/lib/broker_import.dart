@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:fast_gbk/fast_gbk.dart';
 
 import 'domain.dart';
 import 'portfolio_import_info.dart';
@@ -30,31 +31,84 @@ class CsvAccountDetails {
     required this.accountAlias,
     required this.priceDate,
     required this.cash,
+    this.columnMapping,
+    this.delimiter,
+    this.encoding,
   });
   final String broker, accountAlias, priceDate;
   final double cash;
+  final Map<String, int>? columnMapping;
+  final String? delimiter;
+  final PortfolioTextEncoding? encoding;
 }
 
-String decodePortfolioText(List<int> bytes) {
+enum PortfolioTextEncoding { utf8, gbk }
+
+class BrokerEncodingRequired extends FormatException {
+  const BrokerEncodingRequired()
+    : super('文件不是有效 UTF-8。请确认原文件编码为 GBK，或另存为 UTF-8 后重新选择');
+}
+
+String _strictGbk(List<int> bytes) {
+  // The codec's malformed mode is never enabled. Validate GBK pairs as well,
+  // so truncated input and GB18030 four-byte sequences cannot be accepted.
+  for (var i = 0; i < bytes.length; i++) {
+    if (bytes[i] < 0x80) continue;
+    if (bytes[i] < 0x81 ||
+        bytes[i] > 0xFE ||
+        ++i >= bytes.length ||
+        bytes[i] < 0x40 ||
+        bytes[i] > 0xFE ||
+        bytes[i] == 0x7F) {
+      throw const FormatException('GBK 编码无效或文件不完整；GB18030 四字节字符请另存为 UTF-8');
+    }
+  }
+  return const GbkCodec().decode(bytes);
+}
+
+String decodePortfolioText(List<int> bytes, {PortfolioTextEncoding? encoding}) {
   if (bytes.isEmpty || bytes.length > maxPortfolioBytes) {
     throw const FormatException('持仓文件为空或超过 2 MB');
+  }
+  if (bytes.any((b) => b < 0 || b > 255)) {
+    throw const FormatException('持仓文件包含无效字节');
   }
   if (bytes.length >= 2 &&
       ((bytes[0] == 255 && bytes[1] == 254) ||
           (bytes[0] == 254 && bytes[1] == 255))) {
     if (bytes.length.isOdd) throw const FormatException('UTF-16 文件不完整');
     final little = bytes[0] == 255;
-    return String.fromCharCodes([
+    final units = [
       for (var i = 2; i < bytes.length; i += 2)
         little
             ? bytes[i] | (bytes[i + 1] << 8)
             : (bytes[i] << 8) | bytes[i + 1],
-    ]);
+    ];
+    for (var i = 0; i < units.length; i++) {
+      if (units[i] >= 0xD800 && units[i] <= 0xDBFF) {
+        if (++i >= units.length || units[i] < 0xDC00 || units[i] > 0xDFFF) {
+          throw const FormatException('UTF-16 文件包含不完整字符');
+        }
+      } else if (units[i] >= 0xDC00 && units[i] <= 0xDFFF) {
+        throw const FormatException('UTF-16 文件包含无效字符');
+      }
+    }
+    return String.fromCharCodes(units);
   }
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xEF &&
+      bytes[1] == 0xBB &&
+      bytes[2] == 0xBF) {
+    // A declared UTF-8 file must never silently fall back to GBK.
+    return utf8.decode(bytes.sublist(3));
+  }
+  if (encoding == PortfolioTextEncoding.gbk) return _strictGbk(bytes);
   try {
     return utf8.decode(bytes).replaceFirst(RegExp(r'^\uFEFF'), '');
   } on FormatException {
-    throw const FormatException('请将持仓文件另存为 UTF-8 或带 BOM 的 UTF-16；暂不支持 GBK');
+    if (encoding == PortfolioTextEncoding.utf8) rethrow;
+    _strictGbk(bytes); // Only offer GBK if it is strictly valid.
+    throw const BrokerEncodingRequired();
   }
 }
 
@@ -112,7 +166,7 @@ BrokerSnapshot parseBrokerFile(
   CsvAccountDetails? csv,
   DateTime? now,
 }) {
-  final text = decodePortfolioText(bytes);
+  final text = decodePortfolioText(bytes, encoding: csv?.encoding);
   final clock = now ?? DateTime.now();
   final digest = sha256.convert(bytes).toString();
   late String broker, alias, date, capturedAt, format;
@@ -158,7 +212,7 @@ BrokerSnapshot parseBrokerFile(
     if (!validDate(date)) throw const FormatException('估值日期无效');
     cash = _amount(csv.cash, '账户现金余额');
     capturedAt = clock.toUtc().toIso8601String();
-    rows = _csvHoldings(text);
+    rows = _csvHoldings(text, csv);
     format = 'csv';
   }
   final today = clock
@@ -204,37 +258,170 @@ const _columns = {
   'industry': ['行业', 'industry'],
 };
 
-List<Map<String, dynamic>> _csvHoldings(String text) {
-  final table = parseCsv(text);
-  if (table.isEmpty) throw const FormatException('CSV 没有表头');
+class BrokerCsvTable {
+  BrokerCsvTable({
+    required List<String> headers,
+    required List<List<String>> rows,
+    required this.delimiter,
+    required Map<String, int> suggestedMapping,
+  }) : headers = List.unmodifiable(headers),
+       rows = List.unmodifiable(rows.map((r) => List<String>.unmodifiable(r))),
+       suggestedMapping = Map.unmodifiable(suggestedMapping);
+
+  final List<String> headers;
+  final List<List<String>> rows;
+  final String delimiter;
+
+  /// Only unambiguous known headers are suggested; missing fields need review.
+  final Map<String, int> suggestedMapping;
+  bool get needsMapping =>
+      ![
+        'code',
+        'name',
+        'quantity',
+        'price',
+      ].every(suggestedMapping.containsKey) ||
+      _columns.values.any(
+        (aliases) => headers.where(aliases.contains).length > 1,
+      );
+}
+
+BrokerCsvTable inspectBrokerCsv(
+  List<int> bytes, {
+  String? delimiter,
+  PortfolioTextEncoding? encoding,
+}) => _inspectCsvText(
+  decodePortfolioText(bytes, encoding: encoding),
+  delimiter: delimiter,
+);
+
+String _detectDelimiter(String text) {
+  final counts = {',': 0, '\t': 0, ';': 0};
+  var quoted = false;
+  for (var i = 0; i < text.length; i++) {
+    final c = text[i];
+    if (c == '"') {
+      if (quoted && i + 1 < text.length && text[i + 1] == '"') {
+        i++;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted) {
+      if (c == '\r' || c == '\n') break;
+      if (counts.containsKey(c)) counts[c] = counts[c]! + 1;
+    }
+  }
+  final maximum = counts.values.reduce((a, b) => a > b ? a : b);
+  if (maximum == 0) return ',';
+  final candidates = counts.keys.where((c) => counts[c] == maximum).toList();
+  if (candidates.length != 1) {
+    throw const FormatException('无法确定 CSV 分隔符，请指定逗号、制表符或分号');
+  }
+  return candidates.single;
+}
+
+BrokerCsvTable _inspectCsvText(String text, {String? delimiter}) {
+  final separator = delimiter ?? _detectDelimiter(text);
+  final table = parseCsv(text, delimiter: separator);
+  if (table.isEmpty || table.first.every((h) => h.trim().isEmpty)) {
+    throw const FormatException('CSV 没有表头');
+  }
   final headers = table.first.map((h) => h.trim()).toList();
+  final rows = <List<String>>[];
+  for (final row in table.skip(1)) {
+    if (row.every((cell) => cell.trim().isEmpty)) continue;
+    if (row.length != headers.length) {
+      throw const FormatException('CSV 行列数不一致，请检查分隔符与引号');
+    }
+    rows.add(row);
+  }
+  if (rows.length > 1000) throw const FormatException('最多支持 1000 项持仓');
   final indexes = <String, int>{};
   for (final entry in _columns.entries) {
     final matches = [
       for (var i = 0; i < headers.length; i++)
         if (entry.value.contains(headers[i])) i,
     ];
-    if (matches.length > 1) throw FormatException('${entry.key} 存在多个候选列，请保留一列');
-    if (matches.isEmpty && entry.key != 'industry') {
-      throw FormatException('缺少 ${entry.value.first} 列；数量需用总持仓，价格需用市价');
-    }
-    if (matches.isNotEmpty) indexes[entry.key] = matches.single;
+    if (matches.length == 1) indexes[entry.key] = matches.single;
   }
+  return BrokerCsvTable(
+    headers: headers,
+    rows: rows,
+    delimiter: separator,
+    suggestedMapping: indexes,
+  );
+}
+
+List<Map<String, dynamic>> _csvHoldings(String text, CsvAccountDetails csv) {
+  final table = _inspectCsvText(text, delimiter: csv.delimiter);
+  if (csv.columnMapping == null) {
+    for (final entry in _columns.entries) {
+      if (table.headers.where(entry.value.contains).length > 1) {
+        throw FormatException('${entry.key} 存在多个候选列，请选择列映射');
+      }
+    }
+  }
+  final indexes = csv.columnMapping ?? table.suggestedMapping;
+  validateBrokerCsvMapping(table, indexes);
   return [
-    for (final row in table.skip(1))
-      if (row.any((cell) => cell.trim().isNotEmpty))
-        if (row.length != headers.length)
-          throw const FormatException('CSV 行列数不一致，请检查逗号与引号')
-        else
-          {
-            for (final entry in indexes.entries)
-              entry.key: row[entry.value].trim(),
-          },
+    for (final row in table.rows)
+      {
+        for (final entry in indexes.entries)
+          entry.key: entry.key == 'code'
+              ? _csvCodeLiteral(row[entry.value].trim())
+              : row[entry.value].trim(),
+      },
   ];
 }
 
+void validateBrokerCsvMapping(BrokerCsvTable table, Map<String, int> indexes) {
+  if (indexes.keys.any((key) => !_columns.containsKey(key))) {
+    throw const FormatException('CSV 列映射包含未知字段');
+  }
+  for (final field in ['code', 'name', 'quantity', 'price']) {
+    if (!indexes.containsKey(field)) {
+      throw FormatException(
+        '缺少或存在多个 ${_columns[field]!.first} 候选列，请选择列映射；数量需用总持仓，价格需用市价',
+      );
+    }
+  }
+  if (indexes.values.any((i) => i < 0 || i >= table.headers.length)) {
+    throw const FormatException('CSV 列映射超出表头范围');
+  }
+  if (indexes.values.toSet().length != indexes.length) {
+    throw const FormatException('CSV 列映射不能重复使用同一列');
+  }
+  if (RegExp(
+    r'可用|可卖|可售|冻结|available|sellable|tradable|frozen',
+    caseSensitive: false,
+  ).hasMatch(table.headers[indexes['quantity']!])) {
+    throw const FormatException('数量需使用总持仓列，不能使用可用或可卖数量');
+  }
+  if (RegExp(
+    r'成本|买入价|购买价|均价|cost|purchase|average|avg',
+    caseSensitive: false,
+  ).hasMatch(table.headers[indexes['price']!])) {
+    throw const FormatException('价格需使用市价列，不能使用成本价');
+  }
+}
+
+String _csvCodeLiteral(String code) {
+  // An apostrophe is Excel's explicit text marker, not a formula. Only strip
+  // it when the entire remaining value is an A-share code; never evaluate =.
+  if (RegExp(
+    r"^'\d{6}(?:\.(?:SH|SZ|BJ))?$",
+    caseSensitive: false,
+  ).hasMatch(code)) {
+    return code.substring(1);
+  }
+  return code;
+}
+
 /// RFC-style quoted cells, escaped quotes, CRLF and embedded newlines.
-List<List<String>> parseCsv(String text) {
+List<List<String>> parseCsv(String text, {String delimiter = ','}) {
+  if (![',', '\t', ';'].contains(delimiter)) {
+    throw const FormatException('CSV 分隔符需为逗号、制表符或分号');
+  }
   final rows = <List<String>>[];
   var row = <String>[];
   var cell = StringBuffer();
@@ -259,7 +446,7 @@ List<List<String>> parseCsv(String text) {
       } else {
         cell.write(c);
       }
-    } else if (c == ',') {
+    } else if (c == delimiter) {
       finishCell();
     } else if (c == '\r' || c == '\n') {
       if (c == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++;

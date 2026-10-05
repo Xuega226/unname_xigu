@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'research.dart';
 import 'reports.dart';
 import 'portfolio_import_info.dart';
+import 'portfolio_history.dart';
 
 double _number(Map<String, dynamic> json, String key, {double minimum = 0}) {
   final value = json[key];
@@ -240,6 +241,7 @@ class WorkspaceData {
     this.documents = const [],
     this.studyVersions = const [],
     this.portfolioImport,
+    this.portfolioHistory = const [],
   });
   final bool isDemo;
   final double cash, deposits, withdrawals, lossBudget;
@@ -253,6 +255,7 @@ class WorkspaceData {
   final List<ReportDocument> documents;
   final List<StudyVersion> studyVersions;
   final PortfolioImportInfo? portfolioImport;
+  final List<PortfolioHistoryEntry> portfolioHistory;
   double get principal => deposits - withdrawals;
   double get stocks => holdings.fold(0, (sum, h) => sum + h.marketValue);
   double get assets => cash + stocks;
@@ -295,6 +298,8 @@ class WorkspaceData {
     List<ReportDocument>? documents,
     List<StudyVersion>? studyVersions,
     PortfolioImportInfo? portfolioImport,
+    bool clearPortfolioImport = false,
+    List<PortfolioHistoryEntry>? portfolioHistory,
   }) => WorkspaceData(
     isDemo: isDemo ?? this.isDemo,
     cash: cash ?? this.cash,
@@ -310,10 +315,13 @@ class WorkspaceData {
     financials: financials ?? this.financials,
     documents: documents ?? this.documents,
     studyVersions: studyVersions ?? this.studyVersions,
-    portfolioImport: portfolioImport ?? this.portfolioImport,
+    portfolioImport: clearPortfolioImport
+        ? null
+        : portfolioImport ?? this.portfolioImport,
+    portfolioHistory: portfolioHistory ?? this.portfolioHistory,
   );
   Map<String, dynamic> toJson() => {
-    'schemaVersion': 4,
+    'schemaVersion': 6,
     'isDemo': isDemo,
     'cash': cash,
     'deposits': deposits,
@@ -329,6 +337,7 @@ class WorkspaceData {
     'documents': documents.map((r) => r.toJson()).toList(),
     'studyVersions': studyVersions.map((r) => r.toJson()).toList(),
     'portfolioImport': portfolioImport?.toJson(),
+    'portfolioHistory': portfolioHistory.map((e) => e.toJson()).toList(),
   };
   String encode() => const JsonEncoder.withIndent('  ').convert(toJson());
   factory WorkspaceData.decode(String raw) {
@@ -337,9 +346,11 @@ class WorkspaceData {
     }
     final j = jsonDecode(raw);
     if (j is! Map<String, dynamic> ||
-        ![1, 2, 3, 4].contains(j['schemaVersion']) ||
+        ![1, 2, 3, 4, 6].contains(j['schemaVersion']) ||
         j['isDemo'] is! bool) {
-      throw const FormatException('不是支持的备份格式（需要 schemaVersion 1 到 4）');
+      throw const FormatException(
+        '不是支持的备份格式（支持 schemaVersion 1、2、3、4、6；不支持多账户格式 5）',
+      );
     }
     List<T> records<T>(String key, T Function(Map<String, dynamic>) parse) {
       final values = j[key];
@@ -389,14 +400,21 @@ class WorkspaceData {
       studyVersions: j['schemaVersion'] >= 3
           ? records('studyVersions', StudyVersion.fromJson)
           : [],
-      portfolioImport: j['schemaVersion'] == 4 && j['portfolioImport'] != null
+      portfolioImport: j['schemaVersion'] >= 4 && j['portfolioImport'] != null
           ? PortfolioImportInfo.fromJson(
               j['portfolioImport'] is Map<String, dynamic>
                   ? j['portfolioImport'] as Map<String, dynamic>
                   : throw const FormatException('持仓导入记录格式无效'),
             )
           : null,
+      portfolioHistory: j['schemaVersion'] == 6
+          ? records('portfolioHistory', PortfolioHistoryEntry.fromJson)
+          : const [],
     );
+    validatePortfolioHistory(result.portfolioHistory);
+    if (result.isDemo && result.portfolioHistory.isNotEmpty) {
+      throw const FormatException('真实持仓历史不可混入演示工作区');
+    }
     if (result.isDemo && result.portfolioImport != null) {
       throw const FormatException('券商持仓不可混入演示工作区');
     }

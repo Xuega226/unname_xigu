@@ -9,6 +9,7 @@ import 'broker_import.dart';
 import 'domain.dart';
 import 'storage.dart';
 import 'portfolio_import_info.dart';
+import 'portfolio_history.dart';
 
 class SelectedPortfolioFile {
   const SelectedPortfolioFile({
@@ -204,7 +205,12 @@ class BrokerFileSync extends ChangeNotifier {
 
   Future<void> check() async {
     final bound = settings;
-    if (_busy || bound == null || _disposed || !canApply()) return;
+    if (_busy || bound == null || _disposed) return;
+    if (!canApply()) {
+      status = '已暂停检查：应用不在前台或正在操作，恢复后重试';
+      _notify();
+      return;
+    }
     _busy = true;
     final generation = _generation;
     try {
@@ -218,6 +224,8 @@ class BrokerFileSync extends ChangeNotifier {
           data.isDemo ||
           previous.identity != bound.identity ||
           snapshot.info.identity != bound.identity) {
+        await _recordFailure('source_changed', generation);
+        if (_disposed || generation != _generation) return;
         await stop();
         status = '已暂停：账户或持仓已改变，请重新预览导入并绑定';
         _notify();
@@ -228,20 +236,62 @@ class BrokerFileSync extends ChangeNotifier {
         _notify();
         return;
       }
-      final next = applyBrokerSnapshot(data, snapshot, automatic: true);
-      if (await save(next)) {
+      final next = recordPortfolioImport(
+        data,
+        applyBrokerSnapshot(data, snapshot, automatic: true),
+      );
+      final applied = await save(next);
+      if (_disposed || generation != _generation) return;
+      if (applied) {
         status =
             '已自动导入 ${snapshot.holdings.length} 项持仓 · ${brokerTimeLabel(snapshot.info.importedAt)}';
       } else {
+        await _recordFailure('save_failed', generation);
+        if (_disposed || generation != _generation) return;
         status = '自动保存失败，保留旧持仓，下次重试';
       }
-    } catch (_) {
+    } catch (error) {
+      if (_disposed || generation != _generation) return;
       // Do not expose arbitrary source text, paths, or credentials from errors.
-      status = '自动导入未应用：请检查文件完整性、日期与账户；空持仓需手动确认。旧数据已保留';
+      final code = _failureCode(error);
+      await _recordFailure(code, generation);
+      if (_disposed || generation != _generation) return;
+      status = '自动导入未应用：${portfolioFailureMessages[code]}。旧数据已保留';
     } finally {
       _busy = false;
       _notify();
     }
+  }
+
+  Future<void> _recordFailure(String code, int generation) async {
+    if (_disposed || generation != _generation || !canApply()) return;
+    final data = currentData();
+    if (data == null || data.isDemo) return;
+    try {
+      final next = recordPortfolioFailure(data, code);
+      if (identical(next, data)) return;
+      if (_disposed || generation != _generation || !canApply()) return;
+      await save(next);
+    } catch (_) {
+      // A failed audit write must never discard the current portfolio or the
+      // latest reversible operation. Retry a valid source on the next check.
+    }
+  }
+
+  String _failureCode(Object error) {
+    if (error is FileSystemException) return 'read_failed';
+    if (error is FormatException) {
+      final message = error.message;
+      if (message.contains('容量') ||
+          message.contains('历史') ||
+          message.contains('快照过大')) {
+        return 'capacity_exceeded';
+      }
+      if (message.contains('早于')) return 'stale_snapshot';
+      if (message.contains('相同快照时间')) return 'conflicting_timestamp';
+      if (message.contains('空持仓')) return 'empty_snapshot';
+    }
+    return 'invalid_snapshot';
   }
 
   @override

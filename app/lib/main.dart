@@ -20,6 +20,9 @@ import 'broker_import.dart';
 import 'broker_sync.dart';
 import 'broker_widgets.dart';
 import 'portfolio_import_info.dart';
+import 'portfolio_history.dart';
+import 'portfolio_history_widgets.dart';
+import 'risk_charts.dart';
 
 void main() => runApp(const LianghuaApp());
 
@@ -416,7 +419,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                           if (_page == 3) ..._reviews(data),
                           const SizedBox(height: 24),
                           const Text(
-                            'v0.5.1 · 券商持仓文件导入 · Windows 前台自动读取 · 财报研究与复查',
+                            'v0.6.1 · 风险图表 · 单账户导入历史与撤销 · 财报研究与复查',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF647A80),
@@ -790,6 +793,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           : '亏损偏好 ${percentage(d.lossBudget)} 是提醒参数，实际亏损可能超过它。高点回撤：历史不足，无法计算。',
     ),
     const SizedBox(height: 16),
+    RiskCharts(
+      data: d,
+      stress: _stress,
+      onStressChanged: (value) => setState(() => _stress = value),
+    ),
+    const SizedBox(height: 16),
     _panel('持仓与行业集中度', [
       Text('估值日期：${d.priceDate} · 全部价格需对应同一日期'),
       const SizedBox(height: 12),
@@ -852,27 +861,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
         ),
     ]),
     const SizedBox(height: 16),
-    _panel('指定情景压力测试', [
-      Text('假设所有股票同时下跌 ${percentage(_stress)}，现金不变'),
-      Slider(
-        value: _stress,
-        min: .1,
-        max: .6,
-        divisions: 10,
-        label: percentage(_stress),
-        onChanged: (v) => setState(() => _stress = v),
-      ),
-      Text(
-        '账户约损失 ${percentage(d.stressLoss(_stress))}',
-        style: const TextStyle(
-          fontSize: 24,
-          color: teal,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      const SizedBox(height: 8),
-      const Text('这是情景计算，不是行情预测或最大亏损估计。'),
-    ]),
+    PortfolioHistoryPanel(data: d, onRestore: _restorePortfolio),
   ];
 
   List<Widget> _reviews(WorkspaceData d) => [
@@ -945,7 +934,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
         selected.snapshot,
         sourceChangeConfirmed: selected.sourceChangeConfirmed,
       );
-      if (!await _save(next, portfolioImporting: true) || !mounted) return;
+      final recorded = recordPortfolioImport(_data!, next);
+      if (!await _save(recorded, portfolioImporting: true) || !mounted) {
+        if (mounted) await _recordPortfolioFailure('save_failed');
+        return;
+      }
       if (selected.automatic) {
         await _brokerSync?.bind(selected.path, selected.snapshot);
       } else {
@@ -955,6 +948,66 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       _message('导入未应用：${e.message}');
     } catch (_) {
       _message('持仓已保存时可继续使用；自动读取配置失败，请重新绑定文件');
+    } finally {
+      _brokerDialogBusy = false;
+    }
+  }
+
+  Future<void> _recordPortfolioFailure(String code) async {
+    if (!mounted || _saving || _data == null || _data!.isDemo) return;
+    try {
+      final next = recordPortfolioFailure(_data!, code);
+      if (!identical(next, _data)) await _save(next, portfolioImporting: true);
+    } catch (_) {
+      // Keep the current portfolio if a failure record cannot be persisted.
+    }
+  }
+
+  Future<void> _restorePortfolio(String entryId) async {
+    if (_brokerDialogBusy || _saving || _data == null) return;
+    _brokerDialogBusy = true;
+    try {
+      final current = _data!;
+      final restored = restorePortfolioHistory(current, entryId);
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('恢复导入前的持仓？'),
+          content: SizedBox(
+            width: 660,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('只恢复持仓、现金与估值日期；保留当前研究、资料、入金、出金及风险偏好。恢复成功后关闭自动读取。'),
+                  const SizedBox(height: 12),
+                  PortfolioDiffView(
+                    before: PortfolioSnapshot.fromWorkspace(current),
+                    after: PortfolioSnapshot.fromWorkspace(restored),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('确认恢复'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true || !mounted) return;
+      if (await _save(restored, portfolioImporting: true)) {
+        await _stopBrokerSync();
+      }
+    } on FormatException catch (error) {
+      _message('恢复未应用：${error.message}');
     } finally {
       _brokerDialogBusy = false;
     }
@@ -1139,7 +1192,17 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             '替换当前工作区？',
             '备份包含 ${parsed.holdings.length} 项持仓、${parsed.studies.length} 张研究卡和 ${parsed.reviews.length} 条复查记录。恢复后关闭文件自动读取，需重新预览并绑定。',
           )) {
-        if (await _save(parsed)) await _stopBrokerSync();
+        // Persist a guard with the restored workspace before attempting to
+        // remove a live binding. If settings removal fails, reopening cannot
+        // reapply that old source over this restored account snapshot.
+        final restored = _brokerSync?.settings != null
+            ? parsed.copyWith(
+                portfolioImport: parsed.portfolioImport?.markModified(),
+              )
+            : parsed;
+        if (await _save(restored, portfolioImporting: true)) {
+          await _stopBrokerSync();
+        }
       }
     } finally {
       if (importing) _brokerDialogBusy = false;
