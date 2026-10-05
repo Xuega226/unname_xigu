@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.lianghua" "\0"
-            VALUE "FileDescription", "lianghua_assistant" "\0"
+            VALUE "FileDescription", "未名溪谷" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "lianghua_assistant" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.lianghua. All rights reserved." "\0"
-            VALUE "OriginalFilename", "lianghua_assistant.exe" "\0"
-            VALUE "ProductName", "lianghua_assistant" "\0"
+            VALUE "OriginalFilename", "weiming_xigu.exe" "\0"
+            VALUE "ProductName", "未名溪谷" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

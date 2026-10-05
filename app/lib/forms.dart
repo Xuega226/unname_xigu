@@ -9,18 +9,21 @@ class InputField {
       this.optional = false,
       this.integer = false,
       this.date = false,
+      this.signed = false,
       this.max});
   final String label, value;
-  final bool numeric, multiline, optional, integer, date;
+  final bool numeric, multiline, optional, integer, date, signed;
   final double? max;
   String? validate(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return optional ? null : '请填写$label';
     if (numeric) {
       final number = double.tryParse(value);
-      if (number == null || !number.isFinite || number < 0) return '请输入非负的有限数值';
+      if (number == null || !number.isFinite || (!signed && number < 0)) {
+        return signed ? '请输入有限数值' : '请输入非负的有限数值';
+      }
       if (integer && number != number.truncateToDouble()) return '股数请输入整数';
-      if (number > 1e12) return '数值过大，请核对单位';
+      if (number.abs() > 1e12) return '数值过大，请核对单位';
       if (max != null && number > max!) return '不能超过 $max';
     }
     if (date) {
@@ -80,8 +83,9 @@ class _DataFormDialogState extends State<DataFormDialog> {
                                   minLines: widget.fields[i].multiline ? 3 : 1,
                                   maxLines: widget.fields[i].multiline ? 6 : 1,
                                   keyboardType: widget.fields[i].numeric
-                                      ? const TextInputType.numberWithOptions(
-                                          decimal: true)
+                                      ? TextInputType.numberWithOptions(
+                                          decimal: true,
+                                          signed: widget.fields[i].signed)
                                       : widget.fields[i].multiline
                                           ? TextInputType.multiline
                                           : TextInputType.text,
@@ -165,8 +169,8 @@ class _BackupDialogState extends State<BackupDialog> {
               FilledButton(
                   onPressed: () {
                     try {
-                      if (controller.text.length > 1000000) {
-                        throw const FormatException('备份过大，初版仅支持 1 MB 以内的文本');
+                      if (controller.text.length > 8000000) {
+                        throw const FormatException('备份过大，最多支持 800 万字符');
                       }
                       final parsed = WorkspaceData.decode(controller.text);
                       Navigator.pop(context, parsed);

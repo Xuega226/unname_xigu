@@ -1,41 +1,49 @@
-# v0.1 验证记录
+# v0.2 验证记录
 
-完成日期：2026-10-01（Asia/Shanghai）。
+完成日期：2026-10-01（Asia/Shanghai）。本轮显示名为「未名溪谷」。
 
-## 构建与运行
+## 已通过
 
-- Windows x64 Release 构建成功。启动后进程保持运行，应用支持目录生成了有效的模拟账户 JSON。发行目录含 Flutter 引擎、应用资源、JNI 库与 Visual Studio 提供的 C++ 运行库。
-- Android Release APK 构建成功；通用包包含多个目标架构，使用调试密钥签名供本地体验。
-- 在 Pixel 4 XL / Android 10（API 29）x86_64 模拟器中安装并启动了 Android 包，界面正常。
-- 使用模拟器界面录入一条复查记录，强制停止并重启后仍可读取该记录；升级安装 Release 包后，界面再次显示保留的记录。检查当前应用进程日志，未发现 Flutter 错误或致命异常。
-- Android 实机尚未连接，因此尚未验证具体手机的文件交互、厂商系统行为或大字体设置。没有应用商店发布。
+- 静态检查：无问题。23 项功能与界面测试通过，包含旧版 13 项回归以及 v1 原文件保留迁移、空财务值与负利润/现金流、报告期间分组、错误来源关联、伪造引用拦截、人工接受前不改研究卡、接受后保留前后版本、行情身份核验、排除未完成日线、前导零、部分/失败/混合日期行情拒绝估值、备份往返一致风险结果、HTTP 重定向不转发密钥及错误响应脱敏。
+- Windows 原生集成测试：系统安全存储写入、读取、删除独立的非密钥哨兵成功；固定旧数据目录正确；应用 Dart HTTPS 客户端查询 SZ:000001 平安银行并获取 2026-09-30 收盘价 11.57 成功。
+- Android 10 / API 29 / x86_64 模拟器：相同原生安全存储与独立 HTTPS 查询测试通过，同样得到上述交易日期和价格。手机端不依赖 Windows 本地服务。
+- 桌面 Dart 独立客户端同时查询 SH:600000 浦发银行（银行Ⅱ）与 SZ:000001 平安银行（银行Ⅱ），2026-09-30 收盘价分别 9.48、11.57。获取时点为 2026-10-01；未混入当日日线。
+- Windows 旧 workspace.json 实际启动迁移到 schemaVersion 2，原 3 项持仓、5 张研究卡保留，workspace.json.v1.bak 存在；新名称进程启动并响应。
+- Android 从原 v0.1 Release 包录入 Upgrade_v01_to_v02_preserve_this_review 复查，再覆盖安装 v0.2；最终发行包又以 Final_release_upgrade_preserves_v01_review 重测通过；未名溪谷界面仍显示原记录，applicationId 与测试签名保持兼容。模拟器测试目录也确认 schemaVersion 2。
+- 1280×900 桌面和 390×844 手机 UI 渲染通过，已检查中文、图标、真实日线展示与小屏换行。
 
-## 自动检查
+## 构建与构建脚本
 
-- Flutter 静态检查：无问题。
-- 13 项功能测试全部通过，覆盖：包含现金的仓位与压力测试、非正本金处理、资金流口径、备份往返、异常导入拒绝、文件保存与恢复、损坏文件保留、研究卡修改前内容保存、非法持仓输入拒绝、桌面与手机尺寸布局、复查记录保存及重开。
-- 单独生成并检查桌面和手机布局预览，加载中文与 Material 图标字体；手机首屏能同时展示资产、仓位和盈亏。
+- Windows x64 Release 与 Android 通用 Release APK 均完成构建；最终包使用 main.dart 入口，无预置密钥。Android 是测试签名，不是应用商店签名。
+- 项目 SDK 为 Flutter 官方 stable 源码快照，当前本机报告 Flutter 3.47.4-0.0.pre-1 / Dart 3.13.4；跨机器建议使用官方完整 stable SDK。
+- Windows 无符号链接权限时使用项目内 junction。修正了脚本：补建链接后再运行 pub get，完成 Android 与 Windows 新插件注册；旧 v0.1 CMake 目标缓存由脚本移除单个生成文件。
+- Android 模拟器初次升级后 VM 套接字被系统拒绝；重启测试模拟器后恢复。缺失插件注册已定位并修复，修复后的两端原生测试均通过。未改变电脑系统的开发者模式或权限设置。
+- 模拟器软件 GPU 的 Impeller shader 有兼容问题，原生集成测试使用 --no-enable-impeller；发行包实际启动另行检查。
 
-## 构建环境处理
+## AI 与数据来源的验证边界
 
-- Flutter 官方 Git 地址连接不稳定，改用官方 stable 源码压缩包，保留引擎版本 pin，并建立本地 Git 快照以启动工具。
-- Windows 插件链接使用项目内 junction，未修改系统开发者模式。
-- 补充了 Android 命令行工具、API 36 / 35 平台、Build Tools 36.0.0、NDK 28.2 和 CMake 3.22.1。命令行工具下载文件已校验官方 SHA-256。
-- Gradle 通过电脑已有的 Windows 代理连接下载；一次 Android 依赖 TLS 握手失败，经自动重试后构建成功。Gradle wrapper 的发行包使用官方 SHA-256 校验。
+- DeepSeek 官方 Chat Completions / JSON 接口格式已核对；本地模拟响应验证五节草稿、来源 ID、逐字摘录、截断或空响应拒绝、人工核验门槛以及保存前后版本。
+- 2026-10-01 在 Windows 发行应用内使用用户已保存的本机配置完成真实连接检查，返回 deepseek-flash、deepseek-v4-pro；独立原生测试使用 deepseek-flash 生成五节 JSON 草稿约 3078 ms，来源 ID 与逐字引用检查通过，伪造 sourceId 被拦截。发送内容仅为明确标注的虚构公司测试片段，没有发送持仓或改动研究工作区。未检查账户余额，也未在 Android 上调用真实模型。
+- 两次先前生成因复查/缺失章节出现 4 字、6 字短摘录而被严格校验拒绝，未应用。补强提示词：缺失信息和复查条件使用空 refs，事实/支持/反面证据优先引用完整原句，明确所有引用的最低长度；校验规则保持不变。最终通过是一次实测结果，不保证后续模型输出必然合格。
+- 独立测试最初读到的是 Codex MSIX 容器内的旧测试安全存储，而发行应用使用普通用户 AppData。诊断时暂时移开容器内的空测试文件，让读取回落至用户配置，测试后恢复该文件。未导出、显示或提交密钥。无密钥测试报告位于 artifacts/deepseek-live-test.json，显式 opt-in 测试不属于普通功能测试。
+- 引用检查只证明引用 ID 与摘录存在于输入，不证明判断在逻辑上成立；原文真实性、数字口径及推测仍需人工核验。
+- 财务数字先人工录入，缺失保留 null；营收/扣非利润/现金流为期间数，现金与有息负债为期末余额。仅相同起止日期与单位的记录放在一个比较组。金融行业保留独立口径说明，不自动打分。
+- 行情实测覆盖沪深两只股票。公共接口并无稳定性保证，科创、创业、北交所及各类停牌情形未逐一实测。网络失败保留旧价格与错误状态；账户价格仅在全部匹配、同日且不回退日期时统一应用。
+- [DeepSeek 官方请求说明](https://api-docs.deepseek.com/api/create-chat-completion/)；[AKShare 股票数据接口文档](https://akshare.akfamily.xyz/data/stock/stock.html)。
 
-## 当前产品限制
+## 仍未验证与后续范围
 
-当前数据是虚构示例或人工录入。没有真实行情、自动财报更新、模型 API、后台通知、云端同步、量化回测或自动交易。研究卡是人工填写的依据记录，不是自动选股排名。
-
-目前只计算现金与股票资产。20% 是相对本金的个人亏损偏好提醒，实际亏损可能超过它。账户高点回撤缺少经过现金流调整的历史序列，界面明确显示无法计算。
-
-Android 使用模拟器验证；桌面保存与自动测试已验证，但尚未在另一台 Windows 电脑进行完整部署测试。
+Android 实机、另一台 Windows 部署、大字体及厂商系统差异尚未实测。密钥换设备需要重设；研究备份明文 JSON 手动传输。未实现自动抓财报、PDF/OCR、全市场排名、现金流调整的历史净值/高点回撤、后台提醒、云同步和自动交易。
 
 ## 体验文件
 
-- `artifacts/windows-v0.1/lianghua_assistant.exe`：在整个目录保留完整的情况下双击运行。
-- `artifacts/lianghua-windows-v0.1.zip`：可复制到其他 Windows 电脑，完整解压后运行 exe。
-- `artifacts/lianghua-android-v0.1.apk`：传到安卓手机进行本地安装，属于测试签名包。
-- `docs/preview/desktop.png`：桌面 UI 渲染预览。
-- `docs/preview/android.png`：手机 UI 渲染预览。
-- `docs/preview/android-emulator.png`：实际安装包的安卓模拟器截图。
+- artifacts/windows-v0.2/weiming_xigu.exe：完整目录内直接运行。
+- artifacts/weiming-xigu-windows-v0.2.zip：完整解压使用。
+- artifacts/weiming-xigu-android-v0.2.apk：测试签名 APK，可覆盖同签名 v0.1。
+- artifacts/SHA256SUMS-v0.2.txt：发行包 SHA-256。
+- docs/preview/desktop.png / android.png：演示账户布局。
+- docs/preview/desktop-research.png / android-research.png：真实查询的自选与日线布局。
+- docs/preview/android-emulator.png：最终发行包实际安装的模拟器截图。
+- docs/preview/android-upgrade.png：最终 APK 覆盖安装后保留 v0.1 复查记录的截图。
+
+v0.1 的原验收记录与源码可通过 Git 初始提交 cd2adc6 查看，本轮未删除原体验包。
