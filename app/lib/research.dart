@@ -1,4 +1,6 @@
 // Shared, versioned research records. Missing financial values stay null.
+import 'financial_audit.dart';
+
 bool validAShareSymbol(String exchange, String code) {
   if (!RegExp(r'^\d{6}$').hasMatch(code)) return false;
   return switch (exchange) {
@@ -6,7 +8,7 @@ bool validAShareSymbol(String exchange, String code) {
     'SZ' => code.startsWith('0') || code.startsWith('3'),
     'BJ' =>
       code.startsWith('4') || code.startsWith('8') || code.startsWith('92'),
-    _ => false
+    _ => false,
   };
 }
 
@@ -84,33 +86,33 @@ class WatchCompany {
         quoteSource: url,
       );
   WatchCompany failed(String message) => WatchCompany(
-        id: id,
-        code: code,
-        exchange: exchange,
-        name: name,
-        industry: industry,
-        source: source,
-        fetchedAt: fetchedAt,
-        close: close,
-        tradeDate: tradeDate,
-        quoteFetchedAt: quoteFetchedAt,
-        quoteSource: quoteSource,
-        error: message,
-      );
+    id: id,
+    code: code,
+    exchange: exchange,
+    name: name,
+    industry: industry,
+    source: source,
+    fetchedAt: fetchedAt,
+    close: close,
+    tradeDate: tradeDate,
+    quoteFetchedAt: quoteFetchedAt,
+    quoteSource: quoteSource,
+    error: message,
+  );
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'code': code,
-        'exchange': exchange,
-        'name': name,
-        'industry': industry,
-        'source': source,
-        'fetchedAt': fetchedAt,
-        'close': close,
-        'tradeDate': tradeDate,
-        'quoteFetchedAt': quoteFetchedAt,
-        'quoteSource': quoteSource,
-        'error': error,
-      };
+    'id': id,
+    'code': code,
+    'exchange': exchange,
+    'name': name,
+    'industry': industry,
+    'source': source,
+    'fetchedAt': fetchedAt,
+    'close': close,
+    'tradeDate': tradeDate,
+    'quoteFetchedAt': quoteFetchedAt,
+    'quoteSource': quoteSource,
+    'error': error,
+  };
   factory WatchCompany.fromJson(Map<String, dynamic> j) {
     final code = textField(j, 'code'), exchange = textField(j, 'exchange');
     if (!validAShareSymbol(exchange, code)) {
@@ -138,8 +140,9 @@ class WatchCompany {
       fetchedAt: timestampField(j, 'fetchedAt'),
       close: (price as num?)?.toDouble(),
       tradeDate: price == null ? null : dateField(j, 'tradeDate'),
-      quoteFetchedAt:
-          price == null ? null : timestampField(j, 'quoteFetchedAt'),
+      quoteFetchedAt: price == null
+          ? null
+          : timestampField(j, 'quoteFetchedAt'),
       quoteSource: price == null ? null : sourceUrl(j, 'quoteSource'),
       error: textField(j, 'error', optional: true),
     );
@@ -164,18 +167,18 @@ class SourceExcerpt {
   final String? documentId;
   final int? pageNumber;
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'studyId': studyId,
-        'title': title,
-        'url': url,
-        'period': period,
-        'disclosedAt': disclosedAt,
-        'page': page,
-        'unit': unit,
-        'text': text,
-        if (documentId != null) 'documentId': documentId,
-        if (pageNumber != null) 'pageNumber': pageNumber,
-      };
+    'id': id,
+    'studyId': studyId,
+    'title': title,
+    'url': url,
+    'period': period,
+    'disclosedAt': disclosedAt,
+    'page': page,
+    'unit': unit,
+    'text': text,
+    if (documentId != null) 'documentId': documentId,
+    if (pageNumber != null) 'pageNumber': pageNumber,
+  };
   factory SourceExcerpt.fromJson(Map<String, dynamic> j) {
     final text = textField(j, 'text');
     if (text.length > 24000) throw const FormatException('单段资料最多 24000 字');
@@ -226,11 +229,18 @@ class FinancialRecord {
     this.basis = '未注明',
     this.origin = 'manual',
     this.evidence = const {},
+    this.audit,
   });
   final String id, studyId, sourceId, start, end, disclosedAt, unit;
   final double? revenue, adjustedProfit, operatingCash, cash, debt;
   final String scope, basis, origin;
   final Map<String, FinancialEvidence> evidence;
+  final FinancialAudit? audit;
+  String get confirmationLabel => audit != null
+      ? 'AI 预核验 · 报告级确认'
+      : origin == 'aiConfirmed'
+      ? 'AI 提取 · 逐项人工确认'
+      : '人工录入';
   static const metrics = [
     'revenue',
     'adjustedProfit',
@@ -240,30 +250,31 @@ class FinancialRecord {
   ];
   static const labels = ['营业收入', '扣非净利润', '经营现金流', '期末现金', '期末有息负债'];
   Map<String, double?> get amounts => {
-        'revenue': revenue,
-        'adjustedProfit': adjustedProfit,
-        'operatingCash': operatingCash,
-        'cash': cash,
-        'debt': debt,
-      };
+    'revenue': revenue,
+    'adjustedProfit': adjustedProfit,
+    'operatingCash': operatingCash,
+    'cash': cash,
+    'debt': debt,
+  };
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'studyId': studyId,
-        'sourceId': sourceId,
-        'start': start,
-        'end': end,
-        'disclosedAt': disclosedAt,
-        'unit': unit,
-        'revenue': revenue,
-        'adjustedProfit': adjustedProfit,
-        'operatingCash': operatingCash,
-        'cash': cash,
-        'debt': debt,
-        'scope': scope,
-        'basis': basis,
-        'origin': origin,
-        'evidence': evidence.map((k, v) => MapEntry(k, v.toJson())),
-      };
+    'id': id,
+    'studyId': studyId,
+    'sourceId': sourceId,
+    'start': start,
+    'end': end,
+    'disclosedAt': disclosedAt,
+    'unit': unit,
+    'revenue': revenue,
+    'adjustedProfit': adjustedProfit,
+    'operatingCash': operatingCash,
+    'cash': cash,
+    'debt': debt,
+    'scope': scope,
+    'basis': basis,
+    'origin': origin,
+    'evidence': evidence.map((k, v) => MapEntry(k, v.toJson())),
+    if (audit != null) 'audit': audit!.toJson(),
+  };
   factory FinancialRecord.fromJson(Map<String, dynamic> j) {
     double? amount(String key, {bool signed = false}) {
       final v = j[key];
@@ -311,7 +322,14 @@ class FinancialRecord {
         throw const FormatException('财务候选值与保存的逐项证据不一致');
       }
     }
-    return FinancialRecord(
+    final rawAudit = j['audit'];
+    if (rawAudit != null && rawAudit is! Map<String, dynamic>) {
+      throw const FormatException('财务核验审计格式无效');
+    }
+    final audit = rawAudit == null
+        ? null
+        : FinancialAudit.fromJson(rawAudit as Map<String, dynamic>);
+    final record = FinancialRecord(
       id: textField(j, 'id'),
       studyId: textField(j, 'studyId'),
       sourceId: textField(j, 'sourceId'),
@@ -328,7 +346,10 @@ class FinancialRecord {
       basis: basis as String,
       origin: origin as String,
       evidence: evidence,
+      audit: audit,
     );
+    audit?.validateRecord(record);
+    return record;
   }
   bool comparableWith(FinancialRecord other) =>
       start == other.start &&
@@ -336,6 +357,30 @@ class FinancialRecord {
       unit == other.unit &&
       scope == other.scope &&
       basis == other.basis;
+}
+
+/// A narrow hard check for explicitly named metrics. Ambiguous labels still
+/// require semantic review; absent industry totals are never reconstructed.
+bool financialMetricLabelValid(String metric, String rawLabel) {
+  final label = rawLabel.replaceAll(RegExp(r'\s+'), '');
+  final names = <String, RegExp>{
+    'revenue': RegExp(r'营业(?:总)?收入|营收'),
+    'adjustedProfit': RegExp(r'扣非|扣除非经常性损益'),
+    'operatingCash': RegExp(r'经营(?:活动)?(?:产生的)?现金(?:流量|流)(?:净额)?'),
+    'cash': RegExp(r'货币资金|现金及现金等价物|期末现金'),
+    'debt': RegExp(r'有息(?:负债|债务)'),
+  };
+  return names[metric]?.hasMatch(label) ?? false;
+}
+
+/// Free-form periods remain unknown. Only explicit full-year metadata can
+/// contradict a requested annual date range without semantic inference.
+bool financialPeriodMatches(String period, String start, String end) {
+  final normalized = period.replaceAll(RegExp(r'\s+'), '');
+  final annual = RegExp(r'^(\d{4})年?(?:年度|年报)$').firstMatch(normalized);
+  if (annual == null) return true;
+  final year = annual.group(1)!;
+  return start == '$year-01-01' && end == '$year-12-31';
 }
 
 double parseFinancialNumber(String raw) {
@@ -346,7 +391,8 @@ double parseFinancialNumber(String raw) {
     throw const FormatException('原文数值格式无效，不接受百分比或推算值');
   }
   final negative = value.startsWith('负') || value.startsWith('(');
-  final number = double.parse(
+  final number =
+      double.parse(
         value
             .replaceAll(',', '')
             .replaceAll('负', '')
@@ -370,11 +416,11 @@ class FinancialEvidence {
   final String sourceId, quote, rawValue, label;
   double get value => parseFinancialNumber(rawValue);
   Map<String, dynamic> toJson() => {
-        'sourceId': sourceId,
-        'quote': quote,
-        'rawValue': rawValue,
-        'label': label,
-      };
+    'sourceId': sourceId,
+    'quote': quote,
+    'rawValue': rawValue,
+    'label': label,
+  };
   factory FinancialEvidence.fromJson(Map<String, dynamic> j) {
     final result = FinancialEvidence(
       sourceId: textField(j, 'sourceId'),
@@ -394,16 +440,17 @@ class FinancialEvidence {
         !normalized.contains(normalize(label))) {
       return false;
     }
-    final numbers = RegExp(
-      r'(?:负|-|−)?(?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?\)',
-    )
-        .allMatches(normalized)
-        .where(
-          (m) =>
-              m.end == normalized.length ||
-              !['%', '％'].contains(normalized[m.end]),
-        )
-        .map((m) => m.group(0)!);
+    final numbers =
+        RegExp(
+              r'(?:负|-|−)?(?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:[,，]\d{3})+|\d+)(?:\.\d+)?\)',
+            )
+            .allMatches(normalized)
+            .where(
+              (m) =>
+                  m.end == normalized.length ||
+                  !['%', '％'].contains(normalized[m.end]),
+            )
+            .map((m) => m.group(0)!);
     return numbers.any(
       (n) =>
           n.replaceAll('，', ',').replaceAll('−', '-') ==

@@ -97,7 +97,7 @@ void main() {
         );
         expect(migrated.financials.single.operatingCash, -20);
         expect(migrated.financials.single.cash, isNull);
-        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
         final archive = File('${store.file.path}.v4.bak');
         expect(await archive.readAsBytes(), bytes);
         expect(await store.backup.readAsBytes(), bytes);

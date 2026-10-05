@@ -336,7 +336,7 @@ class WorkspaceData {
     funding: clearFunding ? null : funding ?? this.funding,
   );
   Map<String, dynamic> toJson() => {
-    'schemaVersion': 7,
+    'schemaVersion': 8,
     'isDemo': isDemo,
     'cash': cash,
     'deposits': deposits,
@@ -364,11 +364,25 @@ class WorkspaceData {
     }
     final j = jsonDecode(raw);
     if (j is! Map<String, dynamic> ||
-        ![1, 2, 3, 4, 6, 7].contains(j['schemaVersion']) ||
+        ![1, 2, 3, 4, 6, 7, 8].contains(j['schemaVersion']) ||
         j['isDemo'] is! bool) {
       throw const FormatException(
-        '不是支持的备份格式（支持 schemaVersion 1、2、3、4、6、7；不支持多账户格式 5）',
+        '不是支持的备份格式（支持 schemaVersion 1、2、3、4、6、7、8；不支持多账户格式 5）',
       );
+    }
+    if (j['schemaVersion'] < 8 &&
+        j['financials'] is List &&
+        (j['financials'] as List).any((f) => f is Map && f['audit'] != null)) {
+      throw const FormatException('报告级核验审计需要 schemaVersion 8');
+    }
+    if (j['schemaVersion'] < 8 &&
+        j['documents'] is List &&
+        (j['documents'] as List).any(
+          (d) =>
+              d is Map &&
+              (d['preparation'] != null || d['preparedFrom'] != null),
+        )) {
+      throw const FormatException('报告准备依据或版本关系需要 schemaVersion 8');
     }
     List<T> records<T>(String key, T Function(Map<String, dynamic>) parse) {
       final values = j[key];
@@ -428,17 +442,17 @@ class WorkspaceData {
       portfolioHistory: j['schemaVersion'] >= 6
           ? records('portfolioHistory', PortfolioHistoryEntry.fromJson)
           : const [],
-      quant: j['schemaVersion'] == 7
+      quant: j['schemaVersion'] >= 7
           ? QuantState.fromJson(
               j['quant'] is Map<String, dynamic>
                   ? j['quant'] as Map<String, dynamic>
                   : throw const FormatException('量化配置格式无效'),
             )
           : const QuantState(),
-      priceHistory: j['schemaVersion'] == 7
+      priceHistory: j['schemaVersion'] >= 7
           ? records('priceHistory', PriceHistory.fromJson)
           : const [],
-      funding: j['schemaVersion'] == 7 && j['funding'] != null
+      funding: j['schemaVersion'] >= 7 && j['funding'] != null
           ? FundingLedger.fromJson(
               j['funding'] is Map<String, dynamic>
                   ? j['funding'] as Map<String, dynamic>
@@ -495,9 +509,22 @@ class WorkspaceData {
     final documentsById = {for (final d in result.documents) d.id: d};
     final identities = <String>{};
     final announcements = <String>{};
+    final priorDocuments = <String, ReportDocument>{};
     for (final document in result.documents) {
+      final preparedFrom = document.preparedFrom;
+      final parent = priorDocuments[preparedFrom];
+      if (preparedFrom != null &&
+          (parent == null ||
+              parent.studyId != document.studyId ||
+              parent.sha256 != document.sha256 ||
+              parent.pageCount != document.pageCount ||
+              jsonEncode(parent.origin?.toJson()) !=
+                  jsonEncode(document.origin?.toJson()))) {
+        throw const FormatException('报告准备版本须引用前序同公司、同文件及同公告出处');
+      }
       if (!studiesById.containsKey(document.studyId) ||
-          !identities.add('${document.studyId}:${document.sha256}')) {
+          (preparedFrom == null &&
+              !identities.add('${document.studyId}:${document.sha256}'))) {
         throw const FormatException('财报无对应研究卡或相同文件重复导入');
       }
       final origin = document.origin;
@@ -506,13 +533,22 @@ class WorkspaceData {
         if (studiesById[document.studyId]!.code != origin.code ||
             (matching.isNotEmpty &&
                 !matching.any((c) => c.exchange == origin.exchange)) ||
-            !announcements.add(
-              '${document.studyId}:${origin.exchange}:${origin.code}:${origin.announcementId}',
-            )) {
+            (preparedFrom == null &&
+                !announcements.add(
+                  '${document.studyId}:${origin.exchange}:${origin.code}:${origin.announcementId}',
+                ))) {
           throw const FormatException('公告证券与研究卡不符或相同公告重复导入');
         }
       }
+      priorDocuments[document.id] = document;
     }
+    final excerptUnits = {
+      for (final document in result.documents)
+        document.id: {
+          for (final excerpt in document.excerpts())
+            excerpt.pageNumber: excerpt.unit,
+        },
+    };
     for (final s in result.sources) {
       if (!studiesById.containsKey(s.studyId)) {
         throw const FormatException('资料片段没有对应研究卡');
@@ -528,7 +564,7 @@ class WorkspaceData {
             document.title != s.title ||
             document.period != s.period ||
             document.disclosedAt != s.disclosedAt ||
-            document.unit != s.unit ||
+            excerptUnits[document.id]?[s.pageNumber] != s.unit ||
             pages!.length != 1 ||
             !pages.single.text.contains(s.text)) {
           throw const FormatException('原文片段与财报选页或出处不一致');
@@ -536,6 +572,7 @@ class WorkspaceData {
       }
     }
     for (final f in result.financials) {
+      f.audit?.validateSources(result.sources, f.studyId);
       final source = sourcesById[f.sourceId];
       if (!studiesById.containsKey(f.studyId) ||
           source == null ||

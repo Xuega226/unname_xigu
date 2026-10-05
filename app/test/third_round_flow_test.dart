@@ -1,4 +1,6 @@
 import 'support/simplified_navigation.dart';
+import 'support/v073_acceptance.dart'
+    show v073PassingReview, v073ReviewOr, v073SelectLegacyScope;
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -113,9 +115,15 @@ void registerThirdRoundFlows({bool native = false}) {
       final files = MemoryReportFileStore();
       final ai = DeepSeekService(
         transport: FakeTransport((u, b) {
+          final payload = jsonDecode(
+            (b!['messages'] as List).last['content'] as String,
+          ) as Map<String, dynamic>;
+          if (payload.containsKey('candidates')) {
+            return v073PassingReview(payload);
+          }
           final selected =
               jsonDecode(
-                    (b!['messages'] as List).last['content'] as String,
+                    (b['messages'] as List).last['content'] as String,
                   )['sources']
                   as List;
           final source = selected.single as Map;
@@ -169,20 +177,19 @@ void registerThirdRoundFlows({bool native = false}) {
       }
       await tapVisible(tester, find.byType(DropdownButtonFormField<String>));
       await tapVisible(tester, find.text('万元').last);
-      await tapVisible(tester, find.byType(Checkbox).at(1));
-      await tapVisible(tester, find.byType(CheckboxListTile));
-      await tapVisible(tester, find.text('保存选页与原文件'));
+      expect(
+        tester.widget<Checkbox>(find.byType(Checkbox).at(1)).value,
+        isTrue,
+      );
+      await tapVisible(tester, find.text('采用范围并保存原文'));
       expect(store.data!.documents.length, 1);
       expect(files.files.length, 1);
-      await tapVisible(tester, find.text('AI 提取财务候选值'));
-      await tapVisible(tester, find.text('发送选定资料并提取'));
+      await tapVisible(tester, find.text('AI 预核验'));
+      await v073SelectLegacyScope(tester);
+      await tapVisible(tester, find.text('发送范围并预核验'));
       expect(store.data!.financials, isEmpty);
-      await tapVisible(
-        tester,
-        find.widgetWithText(CheckboxListTile, '营业收入：100.00 万元'),
-      );
-      await tapVisible(tester, find.byType(CheckboxListTile).last);
-      await tapVisible(tester, find.text('保存已核验财务记录'));
+      expect(find.text('排除此项'), findsOneWidget);
+      await tapVisible(tester, find.text('确认并保存可采纳字段'));
       expect(store.data!.financials.single.revenue, 100);
       final backup = store.data!.encode();
       expect(backup, isNot(contains('flow-sentinel')));
@@ -254,26 +261,22 @@ void registerThirdRoundFlows({bool native = false}) {
       await tapVisible(tester, find.byType(Checkbox).at(1));
       expect(
         tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存选页与原文件'))
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, '采用范围并保存原文'),
+            )
             .onPressed,
         isNull,
       );
-      await tapVisible(tester, find.byType(CheckboxListTile));
+      await tapVisible(tester, find.byType(Checkbox).at(1));
       await enterVisible(tester, fields.at(2), '2025 年度已核对');
-      expect(
-        tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存选页与原文件'))
-            .onPressed,
-        isNull,
-      );
-      await tapVisible(tester, find.byType(CheckboxListTile));
-      await tapVisible(tester, find.text('保存选页与原文件'));
+      expect(find.byType(CheckboxListTile), findsNothing);
+      await tapVisible(tester, find.text('采用范围并保存原文'));
       expect(saved!.pages.single.number, 2);
       expect(files.files.length, 1);
       expect(tester.takeException(), isNull);
     });
     testWidgets(
-      'financial candidates need explicit selection and review at $size',
+      'financial defaults exclude hard errors and need one adoption at $size',
       (tester) async {
         if (size != null) tester.view.physicalSize = size;
         if (size != null) tester.view.devicePixelRatio = 1;
@@ -283,7 +286,7 @@ void registerThirdRoundFlows({bool native = false}) {
         FinancialRecord? saved;
         final ai = DeepSeekService(
           transport: FakeTransport(
-            (u, b) => {
+            (u, b) => v073ReviewOr(b, {
               'choices': [
                 {
                   'finish_reason': 'stop',
@@ -299,7 +302,7 @@ void registerThirdRoundFlows({bool native = false}) {
                   },
                 },
               ],
-            },
+            }),
           ),
         );
         await dialogHost(
@@ -318,28 +321,12 @@ void registerThirdRoundFlows({bool native = false}) {
             },
           ),
         );
-        await tapVisible(tester, find.text('发送选定资料并提取'));
+        await v073SelectLegacyScope(tester);
+        await tapVisible(tester, find.text('发送范围并预核验'));
         expect(saved, isNull);
-        final candidateCheck = find.widgetWithText(
-          CheckboxListTile,
-          '营业收入：100.00 万元',
-        );
-        final invalidCheck = find.widgetWithText(
-          CheckboxListTile,
-          '期末现金：999 万元',
-        );
-        expect(tester.widget<CheckboxListTile>(invalidCheck).onChanged, isNull);
-        await tapVisible(tester, candidateCheck);
-        expect(
-          tester
-              .widget<FilledButton>(
-                find.widgetWithText(FilledButton, '保存已核验财务记录'),
-              )
-              .onPressed,
-          isNull,
-        );
-        await tapVisible(tester, find.byType(CheckboxListTile).last);
-        await tapVisible(tester, find.text('保存已核验财务记录'));
+        expect(find.text('排除此项'), findsOneWidget);
+        expect(find.textContaining('禁止保存：'), findsWidgets);
+        await tapVisible(tester, find.text('确认并保存可采纳字段'));
         expect(saved!.revenue, 100);
         expect(saved!.cash, isNull);
         expect(
@@ -427,7 +414,9 @@ void registerThirdRoundFlows({bool native = false}) {
       expect(writes, 0);
       expect(
         tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存选页与原文件'))
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, '采用范围并保存原文'),
+            )
             .onPressed,
         isNull,
       );

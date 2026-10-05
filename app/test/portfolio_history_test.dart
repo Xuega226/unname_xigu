@@ -51,7 +51,7 @@ void main() {
     );
     final reopened = WorkspaceData.decode(imported.encode());
     expect(reopened.encode(), imported.encode());
-    expect(reopened.toJson()['schemaVersion'], 7);
+    expect(reopened.toJson()['schemaVersion'], 8);
     expect(reopened.portfolioHistory.single.before!.assets, 220);
     expect(reopened.portfolioHistory.single.after!.assets, 560);
     expect(
@@ -282,14 +282,11 @@ void main() {
     expect(restored.priceDate, legacy.priceDate);
     expect(restored.portfolioImport, isNull);
     expect(WorkspaceData.decode(restored.encode()).cash, legacy.cash);
-    expect(
-      () {
-        final invalid = jsonDecode(utf8.decode(snapshotBytes()));
-        invalid['holdings'][0]['price'] = 0;
-        return parseBrokerFile(utf8.encode(jsonEncode(invalid)));
-      },
-      throwsFormatException,
-    );
+    expect(() {
+      final invalid = jsonDecode(utf8.decode(snapshotBytes()));
+      invalid['holdings'][0]['price'] = 0;
+      return parseBrokerFile(utf8.encode(jsonEncode(invalid)));
+    }, throwsFormatException);
   });
   test('history validates timestamp duplicate IDs action reference and rejects schema5', () {
     final data = recordPortfolioImport(seed(), seed().copyWith(cash: 200));
