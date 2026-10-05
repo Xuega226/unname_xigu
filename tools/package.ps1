@@ -25,6 +25,21 @@ Get-ChildItem -LiteralPath "$($taskRuntime.FullName)/x64/Microsoft.VC143.CRT" -F
     Copy-Item -LiteralPath $_.FullName -Destination $taskBundle -Force
 }
 Copy-Item -LiteralPath "$taskRoot/README.md" -Destination "$taskBundle/README.md" -Force
+New-Item -ItemType Directory -Path "$taskBundle/docs" -Force | Out-Null
+$taskSourceRef = (& git -C $taskRoot rev-parse --abbrev-ref HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Source reference could not be resolved.' }
+if ($taskSourceRef -eq 'HEAD') { $taskSourceRef = (& git -C $taskRoot rev-parse HEAD).Trim() }
+foreach ($taskDoc in (Get-ChildItem -LiteralPath "$taskRoot/docs" -Filter '*.md' -File)) {
+    if ($taskDoc.Name -match 'acceptance|validation') {
+        # The current acceptance record contains this ZIP's checksum. Link to
+        # its source instead of embedding a self-referential checksum in it.
+        $taskRecordUrl = "https://github.com/Xuega226/unname_xigu/blob/$taskSourceRef/docs/$($taskDoc.Name)"
+        "# $($taskDoc.BaseName)`n`n完整验收记录见 [源代码文档]($taskRecordUrl)。" |
+            Set-Content -LiteralPath "$taskBundle/docs/$($taskDoc.Name)" -Encoding utf8
+    } else {
+        Copy-Item -LiteralPath $taskDoc.FullName -Destination "$taskBundle/docs" -Force
+    }
+}
 if (Test-Path -LiteralPath "$taskRoot/docs/broker-holdings-import.md") {
     New-Item -ItemType Directory -Path "$taskBundle/docs" -Force | Out-Null
     Copy-Item -LiteralPath "$taskRoot/docs/broker-holdings-import.md" -Destination "$taskBundle/docs" -Force
@@ -37,7 +52,7 @@ if (Test-Path -LiteralPath "$taskRoot/docs/broker-holdings-import.md") {
 未名溪谷 v$taskVersion
 
 Windows：完整解压后双击 weiming_xigu.exe，保留 DLL 与 data 目录。
-原 Windows 数据目录继续使用 APPDATA/com.lianghua/lianghua_assistant，旧版会自动迁移并保留 v1/v2/v3/v4 备份。
+原 Windows 数据目录继续使用 APPDATA/com.lianghua/lianghua_assistant，旧版会自动迁移并保留 v1/v2/v3/v4/v6 原始备份。
 Android：安装 weiming-xigu-android-v$taskVersion.apk，可覆盖相同测试签名的旧包；卸载前先导出备份。
 
 从默认演示体验；真实研究请在菜单新建空白工作区，再添加真实自选。
@@ -52,6 +67,10 @@ JSON 备份携带选页原文和公告出处，原 PDF 需单独复制并重新�
 Windows 标准 JSON 可绑定同一文件，每 15 秒前台读取外部工具更新；Android 手动导入。文件需由券商导出或外部工具生成，当前没有券商登录和账户直连。
 人工修改持仓、现金、日期或应用行情后关闭自动读取，需要重新预览绑定。导入保留入金与出金，不从资产推算本金。
 风险图表可查看资产、集中度、压力情景与本金盈亏；明细与滑块不改变持仓。
+量化研究支持自选因子规则、筛选、评分、分项贡献与同因子对照。示例默认不启用，每次修改后需明确核对参数；缺失资料不按零分或重新分配权重。
+历史行情支持手动获取或 JSON 预览导入，动量按未复权观测间隔计算。观察日前、不含观察日的数据才参与评分。
+资金流水首次启用需确认覆盖起点，原累计入出金保留为期初，不补造旧流水。新增流水更新本金，不自动改现金；不生成净值、回撤或回测。
+量化规则与数据说明见 docs/quant-rules.md 和 docs/quant-data.md；参数、股本证据、行情及流水随 schema7 备份传输。
 导入历史可预览差异并恢复持仓，保留当前研究和资金；恢复成功后关闭自动读取。
 CSV 支持 UTF-8、BOM UTF-16 与确认后的 GBK，以及三种分隔符和人工列映射。
 导入说明见 docs/broker-holdings-import.md，examples 中样例全部为虚构数据。

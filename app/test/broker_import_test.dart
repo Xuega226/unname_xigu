@@ -364,7 +364,7 @@ void main() {
       final result = await store.load();
       expect(result!.studies.length, 5);
       expect(await File('${store.file.path}.v3.bak').readAsString(), raw);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 6);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
     } finally {
       await dir.delete(recursive: true);
     }
