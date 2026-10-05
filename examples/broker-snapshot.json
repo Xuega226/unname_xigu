@@ -1,0 +1,14 @@
+{
+  "snapshotVersion": 1,
+  "complete": true,
+  "accountType": "cash_equity",
+  "currency": "CNY",
+  "broker": "虚构测试券商",
+  "accountAlias": "测试主账户",
+  "priceDate": "2026-10-01",
+  "capturedAt": "2026-10-01T09:00:00+08:00",
+  "cash": 5000,
+  "holdings": [
+    {"code": "000001", "name": "虚构测试证券", "quantity": 100, "price": 10, "industry": "测试行业"}
+  ]
+}
