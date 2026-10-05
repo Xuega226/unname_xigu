@@ -79,12 +79,13 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 
 void main() {
   testWidgets(
-    'evidence has one add menu and keeps traceable detail on demand',
+    'evidence exposes annual-report fetch and keeps traceable detail on demand',
     (tester) async {
       await _open(tester);
       expect(find.text('1 添加资料 → 2 核验财务 → 3 用于研究'), findsOneWidget);
       expect(find.text('核对财务字段'), findsNothing);
-      expect(find.text('AI 提取财务候选值'), findsNothing);
+      expect(find.text('自动查找年报'), findsOneWidget);
+      expect(find.text('AI 预核验'), findsNothing);
       expect(find.textContaining('SHA-256：'), findsNothing);
       await _tap(tester, find.text(document().fileName));
       expect(find.text('SHA-256：${document().sha256}'), findsOneWidget);
@@ -93,7 +94,7 @@ void main() {
       expect(find.textContaining(testSource.text), findsOneWidget);
       expect(find.text('来源 ID：source-1'), findsOneWidget);
       await _tap(tester, find.text('添加资料'));
-      expect(find.text('自动查找年报'), findsOneWidget);
+      expect(find.text('查询年报（更多）'), findsOneWidget);
       expect(find.text('导入财报 PDF'), findsOneWidget);
       expect(find.text('添加原文片段'), findsOneWidget);
       await _tap(tester, find.text('添加原文片段'));
@@ -110,7 +111,7 @@ void main() {
     await _open(tester);
     await _tap(tester, find.text('财务核验'));
     expect(find.text('核对财务字段'), findsOneWidget);
-    expect(find.text('AI 提取财务候选值'), findsOneWidget);
+    expect(find.text('AI 预核验'), findsOneWidget);
     expect(find.text('营收 100.00 · 扣非净利 -20.00'), findsOneWidget);
     expect(find.text('经营现金流 资料不足'), findsOneWidget);
     expect(find.text('期末现金 资料不足 · 有息负债 资料不足'), findsOneWidget);
@@ -129,14 +130,14 @@ void main() {
       await _tap(tester, find.text('财务核验'));
       expect(
         tester
-            .widget<TextButton>(find.widgetWithText(TextButton, 'AI 提取财务候选值'))
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'AI 预核验'))
             .onPressed,
         isNull,
       );
       await _tap(tester, find.text('核对财务字段'));
       expect(find.text('先录入带出处的原文，再据此核对财务字段'), findsOneWidget);
       await _tap(tester, find.text('添加资料'));
-      for (final label in ['自动查找年报', '导入财报 PDF']) {
+      for (final label in ['查询年报（更多）', '导入财报 PDF']) {
         expect(
           tester
               .widget<PopupMenuItem<String>>(

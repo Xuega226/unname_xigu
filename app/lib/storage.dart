@@ -37,7 +37,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       final raw = await file.readAsString();
       final data = WorkspaceData.decode(raw);
       final schema = (jsonDecode(raw) as Map)['schemaVersion'];
-      if ([1, 2, 3, 4, 6].contains(schema)) {
+      if ([1, 2, 3, 4, 6, 7].contains(schema)) {
         final legacy = File('${file.path}.v$schema.bak');
         if (!await legacy.exists()) await file.copy(legacy.path);
         await save(data);
@@ -48,7 +48,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       final raw = await backup.readAsString();
       final data = WorkspaceData.decode(raw);
       final schema = (jsonDecode(raw) as Map)['schemaVersion'];
-      if ([1, 2, 3, 4, 6].contains(schema)) {
+      if ([1, 2, 3, 4, 6, 7].contains(schema)) {
         // An interrupted save can leave only an older-schema backup. Archive
         // its exact bytes before later saves replace the rolling backup.
         final legacy = File('${file.path}.v$schema.bak');

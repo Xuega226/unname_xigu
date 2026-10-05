@@ -1,4 +1,5 @@
 import 'simplified_navigation.dart';
+import 'v073_acceptance.dart' show v073PassingReview, v073SelectLegacyScope;
 
 import 'dart:convert';
 import 'dart:io';
@@ -91,6 +92,10 @@ class _OfflineFinancialTransport implements JsonTransport {
     final payload = jsonDecode(
       (body!['messages'] as List).last['content'] as String,
     ) as Map<String, dynamic>;
+    if (payload.containsKey('candidates')) {
+      calls++;
+      return v073PassingReview(payload);
+    }
     expect(
       payload.keys,
       unorderedEquals(['company', 'start', 'end', 'scope', 'sources']),
@@ -322,7 +327,7 @@ void registerV03Acceptance({bool native = false}) {
       picker.cancel = true;
       await _tap(tester, find.text('选择 PDF 文件'));
       expect((await _read(tester, first)).encode(), initial.encode());
-      _disabled(tester, '保存选页与原文件');
+      _disabled(tester, '采用范围并保存原文');
       picker.cancel = false;
       await _tap(tester, find.text('选择 PDF 文件'));
       expect((await _read(tester, first)).documents, isEmpty);
@@ -343,12 +348,14 @@ void registerV03Acceptance({bool native = false}) {
       }
       await _tap(tester, find.byType(DropdownButtonFormField<String>));
       await _tap(tester, find.text('万元').last);
-      await _tap(tester, find.byType(Checkbox).first);
-      await _tap(tester, find.byType(Checkbox).at(1));
-      _disabled(tester, '保存选页与原文件');
+      expect(
+        tester
+            .widgetList<Checkbox>(find.byType(Checkbox))
+            .where((c) => c.value == true),
+        hasLength(2),
+      );
       expect((await _read(tester, first)).sources, isEmpty);
-      await _tap(tester, find.byType(CheckboxListTile));
-      await _tap(tester, find.text('保存选页与原文件'));
+      await _tap(tester, find.text('采用范围并保存原文'));
       final imported = await _read(tester, first);
       final doc = imported.documents.single, source = imported.sources.first;
       expect(doc.pages.map((page) => page.number), [1, 2]);
@@ -358,32 +365,13 @@ void registerV03Acceptance({bool native = false}) {
       expect(source.period, doc.period);
       expect(source.disclosedAt, doc.disclosedAt);
       expect(await tester.runAsync(() => firstFiles.read(doc.sha256)), bytes);
-      await _tap(tester, find.text('AI 提取财务候选值'));
-      await _tap(tester, find.byType(CheckboxListTile).last);
-      await _tap(tester, find.text('发送选定资料并提取'));
-      expect(transport.calls, 1);
+      await _tap(tester, find.text('AI 预核验'));
+      await v073SelectLegacyScope(tester);
+      await _tap(tester, find.text('发送范围并预核验'));
+      expect(transport.calls, 2);
       expect((await _read(tester, first)).encode(), imported.encode());
-      _disabled(tester, '保存已核验财务记录');
-      await _tap(
-        tester,
-        find.widgetWithText(CheckboxListTile, '营业收入：100.00 万元'),
-      );
-      _disabled(tester, '保存已核验财务记录');
-      await _tap(
-        tester,
-        find.widgetWithText(CheckboxListTile, '经营现金流：-20.00 万元'),
-      );
-      expect(
-        tester
-            .widget<CheckboxListTile>(
-              find.widgetWithText(CheckboxListTile, '经营现金流：-20.00 万元'),
-            )
-            .value,
-        isTrue,
-        reason: 'Cash-flow candidate must remain selected before confirmation',
-      );
-      await _tap(tester, find.byType(CheckboxListTile).last);
-      await _tap(tester, find.text('保存已核验财务记录'));
+      expect(find.text('排除此项'), findsNWidgets(2));
+      await _tap(tester, find.text('确认并保存可采纳字段'));
       final accepted = await _read(tester, first),
           financial = accepted.financials.single;
       expect(financial.revenue, 100);
@@ -403,7 +391,7 @@ void registerV03Acceptance({bool native = false}) {
       expect(financial.evidence['revenue']!.sourceId, source.id);
       expect(financial.start, doc.start);
       expect(financial.end, doc.end);
-      expect(transport.calls, 1);
+      expect(transport.calls, 2);
       await _tap(tester, find.text('关闭'));
       await _tap(tester, find.text('复查计划与清单').first);
       await _enter(tester, find.byType(TextFormField), '2026-11-04');
@@ -436,7 +424,7 @@ void registerV03Acceptance({bool native = false}) {
           .controller!
           .text;
       final exported = WorkspaceData.decode(backup);
-      expect(exported.toJson()['schemaVersion'], 7);
+      expect(exported.toJson()['schemaVersion'], 8);
       expect(backup, isNot(contains(_sentinel)));
       expect(backup, isNot(contains('originalBase64')));
       expect(exported.reviews.last.text, _review);
@@ -520,7 +508,7 @@ void registerV03Acceptance({bool native = false}) {
       // ignore: avoid_print
       print(
         'V03_ACCEPTANCE platform=${Platform.operatingSystem} nativePdf=$native '
-        'schema=7 documents=1 sources=2 financials=1 history=1 '
+        'schema=8 documents=1 sources=2 financials=1 history=1 '
         'reviewTasks=1 assets=${restored.assets} profit=${restored.profitRate} '
         'textWithoutPdf=true wrongRelinkRejected=true originalRendered=true '
         'exchange=${_importFixture.isNotEmpty}',

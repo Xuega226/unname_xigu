@@ -102,7 +102,7 @@ void main() {
       expect(upgraded.studies.first.nextReviewAt, '');
       expect(upgraded.documents, isEmpty);
       expect(await File('${store.file.path}.v2.bak').readAsString(), raw);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
     },
   );
   test(

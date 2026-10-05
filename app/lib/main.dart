@@ -12,6 +12,7 @@ import 'research_widgets.dart';
 import 'report_import.dart';
 import 'report_fetch.dart';
 import 'financial_widgets.dart';
+import 'financial_verification.dart';
 import 'review_widgets.dart';
 
 import 'dart:io';
@@ -467,7 +468,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                           if (_page == 4) ..._quant(data),
                           const SizedBox(height: 24),
                           const Text(
-                            'v0.7.2 · 数据保存在本机',
+                            'v0.7.3 · 数据保存在本机',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF647A80),
@@ -1563,6 +1564,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   Future<void> _evidence(Study s) async {
     final files = await _reportFiles;
     if (!mounted) return;
+    var evidenceSnapshot = _data!.encode();
     await showDialog<void>(
       context: context,
       builder: (_) => EvidenceDialog(
@@ -1584,21 +1586,37 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           (c) => c.code == s.code && c.specialIndustry,
         ),
         addSource: (e) async {
-          await _save(_data!.copyWith(sources: [..._data!.sources, e]));
+          if (_data!.encode() != evidenceSnapshot) return false;
+          if (!await _save(_data!.copyWith(sources: [..._data!.sources, e]))) {
+            return false;
+          }
+          evidenceSnapshot = _data!.encode();
           return _data!.sources.any((v) => v.id == e.id);
         },
         addFinancial: (e) async {
-          await _save(_data!.copyWith(financials: [..._data!.financials, e]));
+          if (_data!.encode() != evidenceSnapshot) return false;
+          if (_data!.financials.any(
+            (v) => v.id == e.id || sameFinancialSubmission(v, e),
+          )) {
+            return true;
+          }
+          final next = _data!.copyWith(financials: [..._data!.financials, e]);
+          WorkspaceData.decode(next.encode());
+          if (!await _save(next)) return false;
+          evidenceSnapshot = _data!.encode();
           return _data!.financials.any((v) => v.id == e.id);
         },
         addDocument: (document, bytes) async {
+          if (_data!.encode() != evidenceSnapshot) return false;
           final next = _data!.copyWith(
             documents: [..._data!.documents, document],
             sources: [..._data!.sources, ...document.excerpts()],
           );
           WorkspaceData.decode(next.encode());
-          await files.put(document.sha256, bytes);
-          await _save(next);
+          if (bytes.isNotEmpty) await files.put(document.sha256, bytes);
+          if (_data!.encode() != evidenceSnapshot) return false;
+          if (!await _save(next)) return false;
+          evidenceSnapshot = _data!.encode();
           return _data!.documents.any((d) => d.id == document.id);
         },
       ),

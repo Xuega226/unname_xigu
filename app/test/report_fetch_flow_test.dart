@@ -191,21 +191,11 @@ Future<void> select(WidgetTester tester, String id) =>
 
 Future<void> confirmPdf(WidgetTester tester, {bool settle = true}) async {
   expect(find.byType(ReportImportDialog), findsOneWidget);
-  final save = find.widgetWithText(FilledButton, '保存选页与原文件');
-  expect(tester.widget<FilledButton>(save).onPressed, isNull);
+  final save = find.widgetWithText(FilledButton, '采用范围并保存原文');
   await tap(tester, find.byType(DropdownButtonFormField<String>));
   await tap(tester, find.text('万元').last);
-  await tap(
-    tester,
-    find
-        .descendant(
-          of: find.byType(ReportImportDialog),
-          matching: find.byType(Checkbox),
-        )
-        .first,
-  );
-  expect(tester.widget<FilledButton>(save).onPressed, isNull);
-  await tap(tester, find.byType(CheckboxListTile));
+  // Local preparation defaults the matched page into the editable range.
+  expect(find.byType(CheckboxListTile), findsNothing);
   await tap(tester, save, settle: settle);
 }
 
@@ -404,7 +394,7 @@ void main() {
       expect(find.text('保存失败，财报未加入工作区'), findsOneWidget);
       expect(find.byType(ReportImportDialog), findsOneWidget);
       expect(attempts, 1);
-      await tap(tester, find.text('保存选页与原文件'));
+      await tap(tester, find.text('采用范围并保存原文'));
       expect(find.byType(ReportImportDialog), findsNothing);
       await tap(tester, find.text('完成（已保存 1 份）'));
       expect(attempts, 2);
@@ -437,7 +427,7 @@ void main() {
       await tester.pump();
       expect(find.byType(ReportImportDialog), findsOneWidget);
       expect(returned, isNull);
-      final save = find.widgetWithText(FilledButton, '保存选页与原文件');
+      final save = find.widgetWithText(FilledButton, '采用范围并保存原文');
       expect(tester.widget<FilledButton>(save).onPressed, isNull);
       await tester.tap(save);
       await tester.pump();

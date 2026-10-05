@@ -104,7 +104,7 @@ void main() {
     expect(restored.portfolioImport, isNull);
     expect(await archive.readAsBytes(), original);
     expect(await store.backup.readAsBytes(), original);
-    expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+    expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
     await store.save(restored.copyWith(cash: 4321));
     expect(await archive.readAsBytes(), original);
     await store.file.delete();
@@ -123,7 +123,7 @@ void main() {
       await store.backup.writeAsString(jsonEncode(legacy), flush: true);
       expect((await store.load())!.cash, 7654);
       expect(await archive.readAsBytes(), archived);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
     },
   );
   test(
@@ -159,7 +159,7 @@ void main() {
       final archive = File('${store.file.path}.v1.bak');
       expect(await archive.readAsBytes(), original);
       expect(await store.backup.readAsBytes(), original);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
       expect((await LocalWorkspaceStore(directory).load())!.cash, 12345);
 
       await store.save(restored.copyWith(cash: 23456));
@@ -183,7 +183,7 @@ void main() {
 
       expect(await archive.readAsBytes(), archived);
       expect(await store.backup.readAsBytes(), original);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
     },
   );
   test(
@@ -229,7 +229,7 @@ void main() {
         final archive = File('${store.file.path}.v2.bak');
         expect(await archive.readAsBytes(), original);
         expect(await store.backup.readAsBytes(), original);
-        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
         expect(
           (await LocalWorkspaceStore(directory).load())!.encode(),
           restored.encode(),
@@ -257,7 +257,7 @@ void main() {
 
       expect(await archive.readAsBytes(), archived);
       expect(await store.backup.readAsBytes(), incoming);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
+      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
     },
   );
   test(

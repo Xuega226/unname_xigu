@@ -469,6 +469,8 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
         study: widget.study,
         importer: widget.importer,
         existingHashes: documents.map((d) => d.sha256).toSet(),
+        store: widget.allowAI ? widget.store : null,
+        service: widget.allowAI ? widget.service : null,
         save: widget.addDocument,
       ),
     );
@@ -493,13 +495,15 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
         store: widget.store,
         service: widget.service,
         save: widget.addFinancial,
+        records: financials,
+        specialIndustry: widget.specialIndustry,
       ),
     );
     if (result != null && mounted) {
       setState(() {
         financials.add(result);
         evidenceView = 1;
-        message = '已保存人工核验的财务候选值';
+        message = '已保存报告级确认的财务记录及核验依据';
       });
     }
   }
@@ -519,6 +523,8 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
         service: widget.reportFetcher ?? ReportFetchService(),
         importer: widget.importer,
         existingDocuments: documents,
+        store: widget.store,
+        aiService: widget.service,
         save: widget.addDocument,
       ),
     );
@@ -553,6 +559,57 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
       if (mounted) setState(() => message = e.message);
     } catch (_) {
       if (mounted) setState(() => message = '原 PDF 关联失败');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> prepareAgain(ReportDocument document) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      message = '';
+    });
+    try {
+      final bytes = await widget.files.read(document.sha256);
+      final parsed = bytes == null
+          ? ParsedReport(
+              fileName: document.fileName,
+              bytes: Uint8List(0),
+              hash: document.sha256,
+              pages: document.pages,
+            )
+          : await widget.importer.parse(bytes, document.fileName);
+      if (!mounted) return;
+      final result = await showDialog<ReportDocument>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ReportImportDialog(
+          study: widget.study,
+          importer: widget.importer,
+          existingHashes: documents
+              .where((d) => d.sha256 != document.sha256)
+              .map((d) => d.sha256)
+              .toSet(),
+          initialReport: parsed,
+          existingDocument: document,
+          coverageOnly: bytes == null,
+          store: widget.store,
+          service: widget.service,
+          save: widget.addDocument,
+        ),
+      );
+      if (result != null && mounted) {
+        setState(() {
+          documents.add(result);
+          sources.addAll(result.excerpts());
+          message = bytes == null
+              ? '已保存已有片段的新准备版本；原 PDF 缺失，覆盖范围有限。'
+              : '已保存重新选页版本，旧资料与证据保留。';
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => message = '重新准备失败，旧资料保持；可重新关联原 PDF 或人工选页。');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -593,6 +650,12 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
             TextButton(
               onPressed: busy ? null : () => relink(document),
               child: const Text('重新关联原 PDF'),
+            ),
+            TextButton(
+              onPressed: busy || !widget.allowAI
+                  ? null
+                  : () => prepareAgain(document),
+              child: const Text('重新准备选页'),
             ),
           ],
         ),
@@ -637,6 +700,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           Text('${f.scope} · ${f.basis} · 披露 ${f.disclosedAt}'),
+          Text(f.confirmationLabel),
           Text('营收 ${amount(f.revenue)} · 扣非净利 ${amount(f.adjustedProfit)}'),
           Text('经营现金流 ${amount(f.operatingCash)}'),
           Text('期末现金 ${amount(f.cash)} · 有息负债 ${amount(f.debt)}'),
@@ -645,6 +709,10 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
             title: const Text('来源与核验依据'),
             expandedCrossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (f.audit != null)
+                SelectableText(
+                  '复核模型：${f.audit!.model} · 采纳 ${f.audit!.acceptedAt}\n输入指纹：${f.audit!.fingerprint}\n${(f.audit!.toJson()['reviews'] as List).map((r) => '候选 ${r['index']}：${r['verdict']} · ${r['reason']}\n${r['quote']}').join('\n')}\n人工例外：${f.audit!.toJson()['overrides']}',
+                ),
               SelectableText(
                 '来源 [${f.sourceId}]\n${f.evidence.entries.map((e) => '${FinancialRecord.labels[FinancialRecord.metrics.indexOf(e.key)]}：[${e.value.sourceId}]「${e.value.quote}」').join('\n')}',
               ),
@@ -701,6 +769,10 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
               const Text('演示工作区仅供体验。导入真实财报和调用 AI 前，请新建空白工作区。'),
             const SizedBox(height: 12),
             if (evidenceView == 0) ...[
+              OutlinedButton(
+                onPressed: busy || !widget.allowAI ? null : fetchReports,
+                child: const Text('自动查找年报'),
+              ),
               Text('PDF ${documents.length} 份 · 原文 ${sources.length} 段'),
               const Text('先添加报告或公告，再核验需要用于研究的财务数字。'),
               for (final document in documents) documentTile(document),
@@ -717,15 +789,15 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  OutlinedButton(
-                    onPressed: busy ? null : financial,
-                    child: const Text('核对财务字段'),
-                  ),
-                  TextButton(
+                  FilledButton(
                     onPressed: busy || !widget.allowAI || sources.isEmpty
                         ? null
                         : extract,
-                    child: const Text('AI 提取财务候选值'),
+                    child: const Text('AI 预核验'),
+                  ),
+                  TextButton(
+                    onPressed: busy ? null : financial,
+                    child: const Text('核对财务字段'),
                   ),
                 ],
               ),
@@ -762,7 +834,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
           PopupMenuItem(
             value: 'fetch',
             enabled: widget.allowAI,
-            child: const Text('自动查找年报'),
+            child: const Text('查询年报（更多）'),
           ),
           PopupMenuItem(
             value: 'pdf',

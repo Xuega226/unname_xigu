@@ -18,6 +18,14 @@ class FinancialCandidate {
   double get value => proof.value;
   String get label =>
       FinancialRecord.labels[FinancialRecord.metrics.indexOf(metric)];
+  Map<String, dynamic> toJson() => {
+    'metric': metric,
+    'unit': unit,
+    'start': start,
+    'end': end,
+    'scope': scope,
+    ...proof.toJson(),
+  };
   factory FinancialCandidate.fromJson(Map<String, dynamic> j) {
     final metric = textField(j, 'metric');
     if (!FinancialRecord.metrics.contains(metric) ||
@@ -45,6 +53,9 @@ class FinancialCandidate {
     if (start != wantedStart || end != wantedEnd || scope != wantedScope) {
       return '报告期间或报表口径不匹配';
     }
+    if (!financialMetricLabelValid(metric, proof.label)) {
+      return '原文指标名称不支持该指标；请核对净利润、扣非利润及债务含义';
+    }
     if (matches.length != 1 ||
         matches.single.unit != unit ||
         !proof.validFor(matches.single)) {
@@ -58,9 +69,15 @@ class FinancialCandidate {
 }
 
 class FinancialCandidateBatch {
-  const FinancialCandidateBatch(this.candidates, this.missing, this.notes);
+  const FinancialCandidateBatch(
+    this.candidates,
+    this.missing,
+    this.notes, {
+    this.usage,
+  });
   final List<FinancialCandidate> candidates;
   final List<String> missing, notes;
+  final Map<String, dynamic>? usage;
   factory FinancialCandidateBatch.fromJson(Map<String, dynamic> j) {
     final raw = j['candidates'];
     if (raw is! List || raw.length > 20) {
@@ -97,7 +114,10 @@ extension FinancialExtraction on DeepSeekService {
     required String end,
     required String scope,
   }) async {
-    if (key.trim().isEmpty) throw ServiceFailure('请先设置 DeepSeek 密钥');
+    if (key.trim().isEmpty ||
+        !RegExp(r'^[a-zA-Z0-9_.-]{1,100}$').hasMatch(model)) {
+      throw ServiceFailure('请先设置 DeepSeek 密钥和有效模型');
+    }
     if (sources.isEmpty ||
         sources.fold<int>(0, (n, s) => n + s.text.length) > 60000) {
       throw ServiceFailure('请选择有出处的资料，单次最多 60000 字');
@@ -152,13 +172,29 @@ quote 必须是原文连续片段、去除空白后至少8个字符，并同时�
       }
       final json = jsonDecode(content);
       if (json is! Map<String, dynamic>) throw const FormatException();
-      return FinancialCandidateBatch.fromJson(json);
+      final batch = FinancialCandidateBatch.fromJson(json);
+      return FinancialCandidateBatch(
+        batch.candidates,
+        batch.missing,
+        batch.notes,
+        usage: financialUsage(response['usage']),
+      );
     } on ServiceFailure {
       rethrow;
     } catch (_) {
       throw ServiceFailure('模型候选结果格式无效，未保存财务记录');
     }
   }
+}
+
+Map<String, dynamic>? financialUsage(dynamic raw) {
+  if (raw is! Map) return null;
+  final result = <String, dynamic>{};
+  for (final key in ['prompt_tokens', 'completion_tokens', 'total_tokens']) {
+    final v = raw[key];
+    if (v is int && v >= 0) result[key] = v;
+  }
+  return result.isEmpty ? null : result;
 }
 
 FinancialRecord confirmFinancialCandidates({

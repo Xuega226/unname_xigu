@@ -1,4 +1,5 @@
 import 'research.dart';
+import 'report_preparation.dart';
 
 /// Immutable catalogue metadata, kept alongside the human-reviewed PDF fields.
 /// Optional in schema 3 so existing workspaces need no destructive migration.
@@ -108,12 +109,16 @@ class ReportDocument {
     required this.pageCount,
     required this.pages,
     this.origin,
+    this.preparation,
+    this.preparedFrom,
   });
   final String id, studyId, fileName, sha256, title, url, period, start, end;
   final String disclosedAt, unit, importedAt;
   final int pageCount;
   final List<ReportPage> pages;
   final ReportOrigin? origin;
+  final PreparationSuggestion? preparation;
+  final String? preparedFrom;
   String? get announcementId => origin?.announcementId;
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -131,6 +136,8 @@ class ReportDocument {
     'pageCount': pageCount,
     'pages': pages.map((p) => p.toJson()).toList(),
     if (origin != null) 'origin': origin!.toJson(),
+    if (preparation != null) 'preparation': preparation!.toJson(),
+    if (preparedFrom != null) 'preparedFrom': preparedFrom,
   };
   factory ReportDocument.fromJson(Map<String, dynamic> j) {
     final hash = textField(j, 'sha256');
@@ -174,6 +181,24 @@ class ReportDocument {
     if (!['元', '万元', '亿元', '不适用'].contains(unit)) {
       throw const FormatException('原文单位无效');
     }
+    final rawPreparation = j['preparation'];
+    if (rawPreparation != null && rawPreparation is! Map<String, dynamic>) {
+      throw const FormatException('报告准备依据格式无效');
+    }
+    final preparation = rawPreparation == null
+        ? null
+        : PreparationSuggestion.fromJson(
+            rawPreparation as Map<String, dynamic>,
+          );
+    preparation?.validateSources(pages);
+    final rawPreparedFrom = j['preparedFrom'];
+    if (rawPreparedFrom != null &&
+        (rawPreparedFrom is! String ||
+            rawPreparedFrom.trim().isEmpty ||
+            rawPreparedFrom.length > 200 ||
+            rawPreparedFrom == j['id'])) {
+      throw const FormatException('重新准备的原报告 ID 无效');
+    }
     return ReportDocument(
       id: textField(j, 'id'),
       studyId: textField(j, 'studyId'),
@@ -190,6 +215,8 @@ class ReportDocument {
       pageCount: pageCount,
       pages: pages,
       origin: origin,
+      preparation: preparation,
+      preparedFrom: rawPreparedFrom as String?,
     );
   }
   List<SourceExcerpt> excerpts() {
@@ -217,7 +244,7 @@ class ReportDocument {
             period: period,
             disclosedAt: disclosedAt,
             page: 'PDF 第 ${page.number} 页 · 字符 ${chunkStart + 1}–$end',
-            unit: unit,
+            unit: _pageUnit(page),
             text: text,
             documentId: id,
             pageNumber: page.number,
@@ -226,5 +253,43 @@ class ReportDocument {
       }
     }
     return result;
+  }
+
+  String _pageUnit(ReportPage page) {
+    final prepared = preparation;
+    if (prepared == null) return unit;
+    final direct = prepared.tableUnits
+        .where((e) => e.page == page.number)
+        .map((e) => e.value)
+        .toSet();
+    if (direct.length == 1) return direct.single;
+    if (direct.length > 1) return '不适用';
+    // Only continue an immediately preceding explicit header across a page
+    // break. A different table title without a unit stays unknown.
+    final preceding = prepared.tableUnits
+        .where((e) => e.page == page.number - 1)
+        .map((e) => e.value)
+        .toSet();
+    final differentTable = RegExp(r'资产负债表|利润表|现金流量表').hasMatch(page.text);
+    final previousPages = pages
+        .where((p) => p.number == page.number - 1)
+        .toList();
+    final previousText = previousPages.length == 1
+        ? previousPages.single.text
+        : '';
+    final financialContinuation =
+        !page.text.contains('附注') &&
+        ((previousText.contains('资产负债表') &&
+                RegExp(r'货币资金|短期借款|长期借款|资产总计|负债合计').hasMatch(page.text)) ||
+            (previousText.contains('现金流量表') &&
+                RegExp(r'经营活动|投资活动|筹资活动|现金及现金等价物').hasMatch(page.text)) ||
+            (previousText.contains('利润表') &&
+                RegExp(r'营业收入|营业成本|净利润|利润总额').hasMatch(page.text)));
+    if (preceding.length == 1 &&
+        (page.text.contains('续表') ||
+            (!differentTable && financialContinuation))) {
+      return preceding.single;
+    }
+    return '不适用';
   }
 }

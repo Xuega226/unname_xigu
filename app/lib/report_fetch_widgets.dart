@@ -8,6 +8,7 @@ import 'report_import.dart';
 import 'report_widgets.dart';
 import 'reports.dart';
 import 'services.dart';
+import 'credentials.dart';
 
 /// Downloads stay in memory until the user reviews and saves selected PDF pages.
 class ReportFetchDialog extends StatefulWidget {
@@ -19,6 +20,8 @@ class ReportFetchDialog extends StatefulWidget {
     required this.importer,
     required this.existingDocuments,
     required this.save,
+    this.store,
+    this.aiService,
   });
   final Study study;
   final String exchange;
@@ -26,6 +29,8 @@ class ReportFetchDialog extends StatefulWidget {
   final PdfImportService importer;
   final List<ReportDocument> existingDocuments;
   final Future<bool> Function(ReportDocument, Uint8List) save;
+  final CredentialStore? store;
+  final DeepSeekService? aiService;
 
   @override
   State<ReportFetchDialog> createState() => _ReportFetchDialogState();
@@ -192,6 +197,8 @@ class _ReportFetchDialogState extends State<ReportFetchDialog> {
             importer: widget.importer,
             existingHashes: documents.map((d) => d.sha256).toSet(),
             initialReport: parsed,
+            store: widget.store,
+            service: widget.aiService,
             announcement: item,
             save: (document, data) async {
               if (!active(token) ||

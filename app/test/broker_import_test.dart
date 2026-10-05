@@ -352,23 +352,26 @@ void main() {
       isEmpty,
     );
   });
-  test('v3 disk migration keeps original bytes before writing current schema', () async {
-    final dir = await Directory.systemTemp.createTemp('broker_migration_');
-    try {
-      final store = LocalWorkspaceStore(dir);
-      final j = WorkspaceData.demo().toJson()
-        ..['schemaVersion'] = 3
-        ..remove('portfolioImport');
-      final raw = jsonEncode(j);
-      await store.file.writeAsString(raw);
-      final result = await store.load();
-      expect(result!.studies.length, 5);
-      expect(await File('${store.file.path}.v3.bak').readAsString(), raw);
-      expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 7);
-    } finally {
-      await dir.delete(recursive: true);
-    }
-  });
+  test(
+    'v3 disk migration keeps original bytes before writing current schema',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('broker_migration_');
+      try {
+        final store = LocalWorkspaceStore(dir);
+        final j = WorkspaceData.demo().toJson()
+          ..['schemaVersion'] = 3
+          ..remove('portfolioImport');
+        final raw = jsonEncode(j);
+        await store.file.writeAsString(raw);
+        final result = await store.load();
+        expect(result!.studies.length, 5);
+        expect(await File('${store.file.path}.v3.bak').readAsString(), raw);
+        expect(jsonDecode(await store.file.readAsString())['schemaVersion'], 8);
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    },
+  );
   test('foreground sync deduplicates, preserves data on errors, retries failed saves and restores binding', () async {
     final dir = await Directory.systemTemp.createTemp('broker_sync_');
     final file = File('${dir.path}/snapshot.json');

@@ -7,6 +7,8 @@ import 'report_import.dart';
 import 'report_fetch.dart';
 import 'reports.dart';
 import 'services.dart';
+import 'credentials.dart';
+import 'report_preparation.dart';
 
 class ReportImportDialog extends StatefulWidget {
   const ReportImportDialog({
@@ -17,6 +19,10 @@ class ReportImportDialog extends StatefulWidget {
     required this.save,
     this.initialReport,
     this.announcement,
+    this.store,
+    this.service,
+    this.existingDocument,
+    this.coverageOnly = false,
   }) : assert(announcement == null || initialReport != null);
   final Study study;
   final PdfImportService importer;
@@ -24,6 +30,10 @@ class ReportImportDialog extends StatefulWidget {
   final Future<bool> Function(ReportDocument, Uint8List) save;
   final ParsedReport? initialReport;
   final ReportAnnouncement? announcement;
+  final CredentialStore? store;
+  final DeepSeekService? service;
+  final ReportDocument? existingDocument;
+  final bool coverageOnly;
   @override
   State<ReportImportDialog> createState() => _ReportImportDialogState();
 }
@@ -39,10 +49,15 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
       end = TextEditingController(),
       disclosure = TextEditingController(),
       search = TextEditingController();
-  String unit = '元', message = '';
-  bool busy = false, confirmed = false;
+  String unit = '不适用', message = '';
+  bool busy = false;
+  bool preparing = false;
+  int generation = 0;
+  PreparationSuggestion? preparation;
+  AiSettings settings = const AiSettings();
   double? progress;
   final fetchedAt = DateTime.now().toIso8601String();
+  bool get coverageOnly => report?.bytes.isEmpty ?? widget.coverageOnly;
   @override
   void initState() {
     super.initState();
@@ -68,11 +83,29 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
         unit = '不适用';
       }
       message = '已下载并读取 ${initial.pages.length} 页，请选页并核对金额单位';
+      final existing = widget.existingDocument;
+      if (existing != null) {
+        title.text = existing.title;
+        url.text = existing.url;
+        period.text = existing.period;
+        start.text = existing.start;
+        end.text = existing.end;
+        disclosure.text = existing.disclosedAt;
+        unit = existing.unit;
+      }
+      applyLocal();
     }
+    widget.store
+        ?.read()
+        .then((value) {
+          if (mounted) setState(() => settings = value);
+        })
+        .catchError((Object _) {});
   }
 
   @override
   void dispose() {
+    generation++;
     for (final c in [title, url, period, start, end, disclosure, search]) {
       c.dispose();
     }
@@ -92,18 +125,23 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
         },
       );
       if (result != null && mounted) {
+        if (widget.existingDocument != null &&
+            result.hash != widget.existingDocument!.sha256) {
+          throw ServiceFailure('重新准备须选择同一原 PDF；不同文件请另行导入，旧资料已保留');
+        }
         if (widget.existingHashes.contains(result.hash)) {
           throw ServiceFailure('这份 PDF 已导入当前研究卡');
         }
         setState(() {
           report = result;
           selected.clear();
-          confirmed = false;
           title.text = result.fileName.replaceFirst(
             RegExp(r'\.pdf$', caseSensitive: false),
             '',
           );
           message = '读取 ${result.pages.length} 页，请选择需要核验的原文页';
+          preparation = null;
+          applyLocal();
         });
       }
     } on ServiceFailure catch (e) {
@@ -118,7 +156,6 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
   Future<void> save() async {
     if (!formKey.currentState!.validate() ||
         report == null ||
-        !confirmed ||
         selected.isEmpty) {
       return;
     }
@@ -140,11 +177,17 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
         'disclosedAt': disclosure.text.trim(),
         'unit': unit,
         'importedAt': DateTime.now().toIso8601String(),
-        'pageCount': report!.pages.length,
+        'pageCount': widget.existingDocument?.pageCount ?? report!.pages.length,
         'pages': report!.pages
             .where((p) => selected.contains(p.number))
             .map((p) => p.toJson())
             .toList(),
+        if (preparation != null) 'preparation': preparation!.toJson(),
+        if (widget.existingDocument != null)
+          'preparedFrom': widget.existingDocument!.id,
+        if (widget.announcement == null &&
+            widget.existingDocument?.origin != null)
+          'origin': widget.existingDocument!.origin!.toJson(),
         if (widget.announcement != null)
           'origin': ReportOrigin(
             announcementId: widget.announcement!.id,
@@ -190,6 +233,223 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
     }
   }
 
+  void applyLocal() {
+    if (report == null) return;
+    final suggestion = locateReportPages(
+      '${widget.study.code} ${widget.study.name}',
+      report!.pages,
+    );
+    applySuggestion(suggestion);
+  }
+
+  void applySuggestion(PreparationSuggestion suggestion) {
+    preparation = suggestion;
+    if (suggestion.pages.isNotEmpty) {
+      selected
+        ..clear()
+        ..addAll(suggestion.pages.map((p) => p.number));
+    }
+    if (start.text.trim().isEmpty && suggestion.start != null) {
+      start.text = suggestion.start!;
+    }
+    if (end.text.trim().isEmpty && suggestion.end != null) {
+      end.text = suggestion.end!;
+    }
+    if (period.text.trim().isEmpty && suggestion.periodLabel != null) {
+      period.text = suggestion.periodLabel!;
+    }
+    if (unit == '不适用' && suggestion.unit != null) unit = suggestion.unit!;
+    message = suggestion.pages.isEmpty
+        ? '本次未定位到可用关键页，请搜索并人工选页'
+        : '已建议 ${suggestion.pages.length} 页，保留完整表头与相邻页；可预览和调整';
+  }
+
+  List<String> get conflicts {
+    final p = preparation;
+    if (p == null) return [];
+    final values = <String>[];
+    for (final field in ['start', 'end', 'unit', 'scope']) {
+      final suggestions = p.metadataEvidence
+          .where((e) => e.field == field)
+          .map((e) => e.value)
+          .toSet();
+      if (suggestions.length > 1) {
+        values.add(
+          '${preparationFieldLabel(field)}存在多个原文值：${suggestions.join('、')}，保持待处理',
+        );
+      }
+    }
+    if (p.start != null && start.text.isNotEmpty && start.text != p.start) {
+      values.add('报告开始：当前 ${start.text}，正文建议 ${p.start}');
+    }
+    if (p.end != null && end.text.isNotEmpty && end.text != p.end) {
+      values.add('报告结束：当前 ${end.text}，正文建议 ${p.end}');
+    }
+    if (p.unit != null && unit != '不适用' && unit != p.unit) {
+      values.add('金额单位：当前 $unit，正文建议 ${p.unit}');
+    }
+    return values;
+  }
+
+  Future<void> prepare() async {
+    if (busy || widget.service == null || report == null) return;
+    final token = ++generation;
+    final scope = report!.pages
+        .where((p) => selected.contains(p.number))
+        .toList();
+    setState(() {
+      busy = true;
+      preparing = true;
+      message = '正在建议选页和预填，最多一次模型请求';
+    });
+    try {
+      final credentials = widget.store == null
+          ? settings
+          : await widget.store!.read();
+      if (!mounted || token != generation) return;
+      if (credentials.model != settings.model) {
+        setState(() {
+          settings = credentials;
+          message = '本地模型已变更，请查看当前模型并再次主动确认发送范围；未发送请求';
+        });
+        return;
+      }
+      final result = await ReportPreparationService(widget.service!).prepare(
+        key: credentials.key,
+        model: credentials.model,
+        company: '${widget.study.code} ${widget.study.name}',
+        pages: scope,
+      );
+      if (!mounted || token != generation) return;
+      setState(() {
+        settings = credentials;
+        applySuggestion(result);
+      });
+    } catch (e) {
+      if (mounted && token == generation) {
+        setState(
+          () => message = e is ServiceFailure ? e.message : '准备请求失败，已保留人工输入及选页',
+        );
+      }
+    } finally {
+      if (mounted && token == generation) {
+        setState(() {
+          busy = false;
+          preparing = false;
+        });
+      }
+    }
+  }
+
+  Widget preparationSummary(int chars) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (coverageOnly) const Text('原 PDF 不可读取：仅处理已保存片段，无法定位片段之外的页面；可重新选择原文件。'),
+      Text('发送范围：PDF 页序 ${(selected.toList()..sort()).join('、')} · $chars 字'),
+      Text('模型：${settings.model} · 准备最多 1 次请求 · 按模型账户计费；不会自动追加请求'),
+      Text('建议口径：${preparation?.scope ?? '待确认'} · 报告金额单位：$unit（逐表依据可展开）'),
+      const Text('可展开下方页面预览完整发送文字。准备建议不代表财务值核验通过。'),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton(
+            onPressed: busy ? null : () => setState(applyLocal),
+            child: const Text('本机建议选页（免费）'),
+          ),
+          FilledButton(
+            onPressed:
+                busy ||
+                    widget.service == null ||
+                    selected.isEmpty ||
+                    selected.length > 25 ||
+                    chars > 60000
+                ? null
+                : prepare,
+            child: const Text('AI 选页与预填'),
+          ),
+          if (preparing)
+            TextButton(
+              onPressed: () => setState(() {
+                generation++;
+                busy = false;
+                preparing = false;
+                message = '已停止等待，迟到结果不会应用；已发请求可能已计费。';
+              }),
+              child: const Text('停止等待'),
+            ),
+        ],
+      ),
+      if (chars > 60000) const Text('模型最多 60000 字，请移除页面；不会静默截断表头或拆分付费请求。'),
+      if (widget.store == null || settings.key.trim().isEmpty)
+        const Text('未配置模型密钥时仍可使用本机建议与人工选页。'),
+      if (preparation != null) ...[
+        for (final warning in preparation!.warnings) Text(warning),
+        for (final conflict in conflicts) Text('待处理：$conflict'),
+        if (conflicts.isNotEmpty) const Text('保留当前输入，按原文更正后再保存；后续财务预核验另行检查。'),
+        Wrap(
+          spacing: 8,
+          children: [
+            if (preparation!.start != null && preparation!.end != null)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => setState(() {
+                        start.text = preparation!.start!;
+                        end.text = preparation!.end!;
+                        period.text = preparation!.periodLabel!;
+                        generation++;
+                      }),
+                child: const Text('采用正文建议期间'),
+              ),
+            if (preparation!.unit != null)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () => setState(() {
+                        unit = preparation!.unit!;
+                        generation++;
+                      }),
+                child: const Text('采用正文建议单位'),
+              ),
+          ],
+        ),
+        ExpansionTile(
+          title: const Text('选页、预填依据与逐表单位'),
+          children: [
+            for (final page in preparation!.pages)
+              ListTile(
+                title: Text('PDF 第 ${page.number} 页 · ${page.title}'),
+                subtitle: Text(page.reason),
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => PdfPageDialog(
+                    importer: widget.importer,
+                    pages: report!.pages,
+                    initialPage: page.number,
+                    bytes: coverageOnly ? null : report!.bytes,
+                  ),
+                ),
+              ),
+            for (final e in preparation!.metadataEvidence)
+              ListTile(
+                title: Text(
+                  'PDF 第 ${e.page} 页 · ${preparationFieldLabel(e.field)}：${e.value}',
+                ),
+                subtitle: SelectableText(e.quote),
+              ),
+          ],
+        ),
+        Text(
+          preparation!.usage == null
+              ? '实际模型消耗：未知'
+              : '实际模型消耗：${preparation!.usage}（服务返回）',
+        ),
+      ],
+      const SizedBox(height: 12),
+    ],
+  );
+
   Widget field(
     String label,
     TextEditingController controller, {
@@ -202,7 +462,9 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
       enabled: !busy,
       readOnly: readOnly,
       decoration: InputDecoration(labelText: label),
-      onChanged: (_) => setState(() => confirmed = false),
+      onChanged: (_) => setState(() {
+        generation++;
+      }),
       validator: (v) =>
           !optional && (v == null || v.trim().isEmpty) ? '请填写$label' : null,
     ),
@@ -257,6 +519,7 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
                       '${report!.fileName} · ${(report!.bytes.length / 1024 / 1024).toStringAsFixed(1)} MB',
                     ),
                     const SizedBox(height: 12),
+                    preparationSummary(chars),
                     field('财报标题', title),
                     field(
                       '原始公告 HTTPS 网址（本地文件可留空）',
@@ -293,7 +556,7 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
                           ? null
                           : (v) => setState(() {
                               unit = v!;
-                              confirmed = false;
+                              generation++;
                             }),
                     ),
                     const SizedBox(height: 16),
@@ -323,7 +586,16 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
                                       } else {
                                         selected.remove(page.number);
                                       }
-                                      confirmed = false;
+                                      preparation = locateReportPages(
+                                        '${widget.study.code} ${widget.study.name}',
+                                        report!.pages
+                                            .where(
+                                              (p) =>
+                                                  selected.contains(p.number),
+                                            )
+                                            .toList(),
+                                      );
+                                      generation++;
                                     }),
                             ),
                             Expanded(
@@ -345,7 +617,9 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
                                       importer: widget.importer,
                                       pages: report!.pages,
                                       initialPage: page.number,
-                                      bytes: report!.bytes,
+                                      bytes: coverageOnly
+                                          ? null
+                                          : report!.bytes,
                                     ),
                                   ),
                             child: const Text('查看原页与提取文字'),
@@ -353,14 +627,7 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
                           SelectableText(page.text),
                         ],
                       ),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: confirmed,
-                      onChanged: busy
-                          ? null
-                          : (v) => setState(() => confirmed = v!),
-                      title: const Text('我已核对公司、报告期、披露日期、原文页和金额单位'),
-                    ),
+                    const Text('点击下方动作表示采用当前范围及报告信息并保存原文，不代表已逐页或逐项人工核验财务数字。'),
                   ],
                 ],
               ),
@@ -375,13 +642,12 @@ class _ReportImportDialogState extends State<ReportImportDialog> {
           FilledButton(
             onPressed:
                 busy ||
-                    !confirmed ||
                     selected.isEmpty ||
                     selected.length > 25 ||
                     chars > 240000
                 ? null
                 : save,
-            child: const Text('保存选页与原文件'),
+            child: const Text('采用范围并保存原文'),
           ),
         ],
       ),

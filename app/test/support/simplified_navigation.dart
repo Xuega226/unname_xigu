@@ -23,7 +23,7 @@ Future<void> revealSimplifiedAction(WidgetTester tester, Finder target) async {
 
   if (['自动查找年报', '导入财报 PDF', '添加原文片段'].any(description.contains)) {
     await open(find.byTooltip('添加资料'));
-  } else if (['AI 提取财务候选值', '核对财务字段'].any(description.contains)) {
+  } else if (['AI 预核验', '核对财务字段'].any(description.contains)) {
     await open(find.widgetWithText(ChoiceChip, '财务核验'));
   } else if ([
     '生成 AI 草稿',
