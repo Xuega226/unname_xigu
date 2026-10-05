@@ -30,6 +30,8 @@ class BrokerImportDialog extends StatefulWidget {
 
 class _BrokerImportDialogState extends State<BrokerImportDialog> {
   BrokerSnapshot? _snapshot;
+  SelectedPortfolioFile? _file;
+  CsvAccountDetails? _csv;
   String _name = '', _path = '';
   String? _error;
   bool _busy = false, _reviewed = false, _automatic = false;
@@ -37,11 +39,67 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
   int _holdingPage = 0, _removedPage = 0;
   static const _pageSize = 25;
 
+  Future<CsvAccountDetails?> _mapping(
+    List<int> bytes,
+    CsvAccountDetails details,
+  ) async {
+    final table = inspectBrokerCsv(
+      bytes,
+      delimiter: details.delimiter,
+      encoding: details.encoding,
+    );
+    final mapping = await showDialog<Map<String, int>>(
+      context: context,
+      builder: (_) =>
+          BrokerCsvMappingDialog(table: table, initial: details.columnMapping),
+    );
+    if (mapping == null) return null;
+    return CsvAccountDetails(
+      broker: details.broker,
+      accountAlias: details.accountAlias,
+      priceDate: details.priceDate,
+      cash: details.cash,
+      columnMapping: mapping,
+      delimiter: table.delimiter,
+      encoding: details.encoding,
+    );
+  }
+
+  Future<void> _adjustMapping() async {
+    if (_file == null || _csv == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final details = await _mapping(_file!.bytes, _csv!);
+      if (details == null || !mounted) return;
+      final snapshot = parseBrokerFile(_file!.bytes, csv: details);
+      applyBrokerSnapshot(widget.data, snapshot, sourceChangeConfirmed: true);
+      if (mounted) {
+        setState(() {
+          _csv = details;
+          _snapshot = snapshot;
+          _reviewed = false;
+          _sourceChangeConfirmed = false;
+          _holdingPage = 0;
+          _removedPage = 0;
+        });
+      }
+    } on FormatException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _pick() async {
     setState(() {
       _busy = true;
       _error = null;
       _snapshot = null;
+      _file = null;
+      _csv = null;
       _reviewed = false;
       _automatic = false;
       _sourceChangeConfirmed = false;
@@ -53,7 +111,37 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
       if (file == null) return;
       final bytes = file.bytes;
       CsvAccountDetails? details;
-      if (!decodePortfolioText(bytes).trimLeft().startsWith('{')) {
+      PortfolioTextEncoding? encoding;
+      String text;
+      try {
+        text = decodePortfolioText(bytes);
+      } on BrokerEncodingRequired {
+        if (!mounted) return;
+        encoding = await showDialog<PortfolioTextEncoding>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('核对文件编码'),
+            content: const Text(
+              '文件不是有效 UTF-8，但符合 GBK 编码。请确认券商导出编码为 GBK；不确定时请另存为 UTF-8，避免字符被误读。',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                key: const ValueKey('broker-encoding-gbk'),
+                onPressed: () =>
+                    Navigator.pop(context, PortfolioTextEncoding.gbk),
+                child: const Text('确认使用 GBK'),
+              ),
+            ],
+          ),
+        );
+        if (encoding == null) return;
+        text = decodePortfolioText(bytes, encoding: encoding);
+      }
+      if (!text.trimLeft().startsWith('{')) {
         if (!mounted) return;
         final values = await showDialog<List<String>>(
           context: context,
@@ -77,7 +165,13 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
           accountAlias: values[1],
           priceDate: values[2],
           cash: double.parse(values[3]),
+          encoding: encoding,
         );
+        final table = inspectBrokerCsv(bytes, encoding: encoding);
+        if (table.needsMapping) {
+          details = await _mapping(bytes, details);
+          if (details == null) return;
+        }
       }
       final snapshot = parseBrokerFile(bytes, csv: details);
       applyBrokerSnapshot(
@@ -88,6 +182,8 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
       if (mounted) {
         setState(() {
           _snapshot = snapshot;
+          _file = file;
+          _csv = details;
           _name = file.name;
           _path = file.path;
         });
@@ -152,8 +248,19 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
                 Text(
                   '现金 ¥ ${snapshot.cash.toStringAsFixed(2)} · 资产 ¥ ${snapshot.assets.toStringAsFixed(2)}',
                 ),
+                Text(
+                  '原现金 ¥ ${widget.data.cash.toStringAsFixed(2)} → ¥ ${snapshot.cash.toStringAsFixed(2)} · 变化 ¥ ${(snapshot.cash - widget.data.cash).toStringAsFixed(2)}',
+                ),
+                Text('估值日期 ${widget.data.priceDate} → ${snapshot.priceDate}'),
+                if (_csv != null)
+                  OutlinedButton(
+                    key: const ValueKey('broker-adjust-mapping'),
+                    onPressed: _busy ? null : _adjustMapping,
+                    child: const Text('调整 CSV 列映射'),
+                  ),
                 const SizedBox(height: 12),
                 const Text('将替换当前账户的全部持仓与现金；保留研究、入金和出金。'),
+                const Text('数量增加或减少仅表示快照差异，不据此认定成交或公司行为。'),
                 if (needsSourceConfirmation) ...[
                   const Text(
                     '券商或账户别名改变，或首次导入前已有资金记录。请核对是否仍属同一账户；其他账户请先导出当前备份、新建空白工作区并自行维护资金。不能根据当前资产倒推本金。',
@@ -180,7 +287,9 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       '${h.code} ${h.name} · ${h.quantity.toStringAsFixed(0)} 股 · 市价 ${h.price.toStringAsFixed(2)}'
-                      '${current[h.code] == null ? '（新增）' : '\n原 ${current[h.code]!.quantity.toStringAsFixed(0)} 股 · 原市价 ${current[h.code]!.price.toStringAsFixed(2)}'}',
+                      '${current[h.code] == null ? '（新增）' : '\n原 ${current[h.code]!.quantity.toStringAsFixed(0)} 股 · 原市价 ${current[h.code]!.price.toStringAsFixed(2)}'}'
+                      '\n数量变化 ${(h.quantity - (current[h.code]?.quantity ?? 0)).toStringAsFixed(0)} 股'
+                      '${current[h.code] == null ? '' : ' · 市价变化 ${(h.price - current[h.code]!.price).toStringAsFixed(2)}'}',
                     ),
                   ),
                 if (snapshot.holdings.isNotEmpty)
@@ -277,4 +386,88 @@ class _BrokerImportDialogState extends State<BrokerImportDialog> {
       ),
     );
   }
+}
+
+class BrokerCsvMappingDialog extends StatefulWidget {
+  const BrokerCsvMappingDialog({super.key, required this.table, this.initial});
+  final BrokerCsvTable table;
+  final Map<String, int>? initial;
+  @override
+  State<BrokerCsvMappingDialog> createState() => _BrokerCsvMappingDialogState();
+}
+
+class _BrokerCsvMappingDialogState extends State<BrokerCsvMappingDialog> {
+  late final Map<String, int> _mapping = widget.initial == null
+      ? {...widget.table.suggestedMapping}
+      : {...widget.initial!};
+  String? _error;
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('核对 CSV 列映射'),
+    content: SizedBox(
+      width: 560,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('选择总持仓数量与当前市价，勿使用可卖数量或成本价。必填列不可重复。'),
+            for (final field in const {
+              'code': '证券代码',
+              'name': '证券名称',
+              'quantity': '总持仓数量',
+              'price': '当前市价',
+              'industry': '行业（可选）',
+            }.entries)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: DropdownButtonFormField<int>(
+                  key: ValueKey('broker-map-${field.key}'),
+                  initialValue: _mapping[field.key],
+                  isExpanded: true,
+                  decoration: InputDecoration(labelText: field.value),
+                  items: [
+                    if (field.key == 'industry')
+                      const DropdownMenuItem(value: -1, child: Text('未提供')),
+                    for (var i = 0; i < widget.table.headers.length; i++)
+                      DropdownMenuItem(
+                        value: i,
+                        child: Text(
+                          '${i + 1}. ${widget.table.headers[i]} · ${widget.table.rows.isEmpty ? '' : widget.table.rows.first[i]}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() {
+                    if (v == -1) {
+                      _mapping.remove(field.key);
+                    } else {
+                      _mapping[field.key] = v!;
+                    }
+                  }),
+                ),
+              ),
+            if (_error != null) Text(_error!),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        onPressed: () {
+          try {
+            validateBrokerCsvMapping(widget.table, _mapping);
+          } on FormatException catch (e) {
+            setState(() => _error = e.message);
+            return;
+          }
+          Navigator.pop(context, _mapping);
+        },
+        child: const Text('应用列映射'),
+      ),
+    ],
+  );
 }

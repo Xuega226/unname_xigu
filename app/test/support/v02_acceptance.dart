@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lianghua_assistant/credentials.dart';
@@ -20,14 +21,16 @@ class _AcceptanceTransport implements JsonTransport {
   Map<String, dynamic>? sentResearch;
 
   @override
-  Future<Map<String, dynamic>> request(Uri uri,
-      {Map<String, String> headers = const {},
-      Map<String, dynamic>? body}) async {
+  Future<Map<String, dynamic>> request(
+    Uri uri, {
+    Map<String, String> headers = const {},
+    Map<String, dynamic>? body,
+  }) async {
     if (uri.host == 'push2.eastmoney.com') {
       expect(uri.queryParameters['secid'], '0.000001');
       return {
         'rc': 0,
-        'data': {'f57': '000001', 'f58': '平安银行', 'f127': '银行', 'f107': 0}
+        'data': {'f57': '000001', 'f58': '平安银行', 'f127': '银行', 'f107': 0},
       };
     }
     if (uri.host == 'push2his.eastmoney.com') {
@@ -37,16 +40,17 @@ class _AcceptanceTransport implements JsonTransport {
         'data': {
           'code': '000001',
           'market': 0,
-          'klines': ['2026-09-30,10.00,11.50']
-        }
+          'klines': ['2026-09-30,10.00,11.50'],
+        },
       };
     }
     expect(uri.host, 'api.deepseek.com');
     expect(uri.path, '/chat/completions');
     expect(headers['Authorization'], 'Bearer $_sentinel');
     final messages = body!['messages'] as List;
-    sentResearch = jsonDecode((messages.last as Map)['content'] as String)
-        as Map<String, dynamic>;
+    sentResearch = jsonDecode(
+      (messages.last as Map)['content'] as String,
+    ) as Map<String, dynamic>;
     final sources = sentResearch!['sources'] as List;
     expect(sources.length, 1);
     final source = sources.single as Map;
@@ -62,22 +66,22 @@ class _AcceptanceTransport implements JsonTransport {
                 {
                   'text': '虚构验收资料记录营收100万元、现金流负20万元。',
                   'refs': [
-                    {'sourceId': source['id'], 'quote': _excerpt}
-                  ]
-                }
+                    {'sourceId': source['id'], 'quote': _excerpt},
+                  ],
+                },
               ],
               'support': [],
               'counter': [],
               'missing': [
-                {'text': '缺少有息负债资料。', 'refs': []}
+                {'text': '缺少有息负债资料。', 'refs': []},
               ],
               'review': [
-                {'text': '下次报告复查经营现金流。', 'refs': []}
-              ]
-            })
-          }
-        }
-      ]
+                {'text': '下次报告复查经营现金流。', 'refs': []},
+              ],
+            }),
+          },
+        },
+      ],
     };
   }
 }
@@ -86,11 +90,23 @@ class _AcceptanceTransport implements JsonTransport {
 // pending load/save to finish before settling animations or reading the disk.
 Future<void> _settle(WidgetTester tester) async {
   for (var i = 0; i < 100; i++) {
-    await tester
-        .runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
     await tester.pump(const Duration(milliseconds: 50));
+    // Risk exposure bars are determinate values, whereas a determinate
+    // progress bar inside a modal can still mean a PDF/save is in flight.
+    final modalProgress = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(LinearProgressIndicator),
+    );
     if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
-        find.byType(LinearProgressIndicator).evaluate().isEmpty) {
+        modalProgress.evaluate().isEmpty &&
+        !tester
+            .widgetList<LinearProgressIndicator>(
+              find.byType(LinearProgressIndicator),
+            )
+            .any((indicator) => indicator.value == null)) {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       return;
@@ -100,7 +116,12 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 Future<void> _tap(WidgetTester tester, Finder finder) async {
+  FocusManager.instance.primaryFocus?.unfocus();
+  await _settle(tester);
   await tester.ensureVisible(finder);
+  // Navigation reuses its Scrollable; layout must complete after revealing
+  // controls above a tall risk-chart page before computing a tap position.
+  await tester.pumpAndSettle();
   await tester.tap(finder);
   await _settle(tester);
 }
@@ -116,26 +137,38 @@ Future<void> _fill(WidgetTester tester, List<String> values) async {
 }
 
 Future<WorkspaceData> _read(
-        WidgetTester tester, LocalWorkspaceStore store) async =>
-    (await tester.runAsync(store.load))!;
+  WidgetTester tester,
+  LocalWorkspaceStore store,
+) async => (await tester.runAsync(store.load))!;
 
 void registerV02Acceptance({bool native = false}) {
-  testWidgets('v0.2 offline final workflow persists and restores across stores',
-      (tester) async {
+  testWidgets('v0.2 offline final workflow persists and restores across stores', (
+    tester,
+  ) async {
     if (!native) {
       tester.view.physicalSize = const Size(1280, 1000);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
     } else if (Platform.isAndroid) {
-      expect(tester.view.physicalSize.width / tester.view.devicePixelRatio,
-          lessThan(760),
-          reason: 'Native Android acceptance must use a phone layout');
+      expect(
+        tester.view.physicalSize.width / tester.view.devicePixelRatio,
+        lessThan(760),
+        reason: 'Native Android acceptance must use a phone layout',
+      );
     }
     final root = (await tester.runAsync(
-        () => Directory.systemTemp.createTemp('xigu-v02-acceptance-')))!;
+      () => Directory.systemTemp.createTemp('xigu-v02-acceptance-'),
+    ))!;
     addTearDown(() async {
-      await tester.runAsync(() => root.delete(recursive: true));
+      await tester.runAsync(() async {
+        final temporaryRoot = await Directory.systemTemp.resolveSymbolicLinks();
+        final resolved = await root.resolveSymbolicLinks();
+        if (!resolved.startsWith('$temporaryRoot${Platform.pathSeparator}')) {
+          throw StateError('Acceptance cleanup escaped temporary root');
+        }
+        await root.delete(recursive: true);
+      });
     });
     final first = LocalWorkspaceStore(Directory('${root.path}/first'));
     final second = LocalWorkspaceStore(Directory('${root.path}/second'));
@@ -145,11 +178,17 @@ void registerV02Acceptance({bool native = false}) {
     });
     final transport = _AcceptanceTransport();
     final market = MarketService(
-        transport: transport, clock: () => DateTime.utc(2026, 10, 1, 10));
+      transport: transport,
+      clock: () => DateTime.utc(2026, 10, 1, 10),
+    );
     final ai = DeepSeekService(transport: transport);
     final credentials = MemoryCredentialStore(const AiSettings(key: _sentinel));
     Widget app(LocalWorkspaceStore store) => LianghuaApp(
-        store: store, market: market, ai: ai, credentials: credentials);
+      store: store,
+      market: market,
+      ai: ai,
+      credentials: credentials,
+    );
 
     await tester.pumpWidget(app(first));
     await _settle(tester);
@@ -175,7 +214,7 @@ void registerV02Acceptance({bool native = false}) {
       '2026-03-31',
       '第10页',
       '万元',
-      _excerpt
+      _excerpt,
     ]);
     final source = (await _read(tester, first)).sources.single;
     expect(source.text, _excerpt);
@@ -193,7 +232,7 @@ void registerV02Acceptance({bool native = false}) {
       '',
       '-20',
       '',
-      ''
+      '',
     ]);
     final financial = (await _read(tester, first)).financials.single;
     expect(financial.sourceId, source.id);
@@ -209,10 +248,11 @@ void registerV02Acceptance({bool native = false}) {
     await _tap(tester, find.text('发送资料并生成'));
     expect((await _read(tester, first)).encode(), beforeDraft.encode());
     expect(
-        tester
-            .widget<FilledButton>(find.widgetWithText(FilledButton, '接受为研究卡版本'))
-            .onPressed,
-        isNull);
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '接受为研究卡版本'))
+          .onPressed,
+      isNull,
+    );
     await _tap(tester, find.byType(CheckboxListTile));
     await _tap(tester, find.text('接受为研究卡版本'));
     final accepted = await _read(tester, first);
@@ -222,7 +262,9 @@ void registerV02Acceptance({bool native = false}) {
     expect(accepted.reviews.single.text, contains('接受的新版本'));
     expect(transport.generated, 1);
     expect(
-        transport.sentResearch!.keys, unorderedEquals(['company', 'sources']));
+      transport.sentResearch!.keys,
+      unorderedEquals(['company', 'sources']),
+    );
 
     await _tap(tester, find.text('账户风控').last);
     await _tap(tester, find.text('账户设置'));
@@ -255,15 +297,18 @@ void registerV02Acceptance({bool native = false}) {
     await _fill(tester, ['平安银行', _review]);
     await _tap(tester, find.byTooltip('数据与设置'));
     await _tap(tester, find.text('导出备份'));
-    final backup =
-        tester.widget<TextField>(find.byType(TextField)).controller!.text;
+    final backup = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!
+        .text;
     expect(backup, isNot(contains(_sentinel)));
     final exported = WorkspaceData.decode(backup);
     expect(exported.reviews.last.text, _review);
     expect(exported.reviews.length, 3);
     if (_exportFixture.isNotEmpty) {
       await tester.runAsync(
-          () => File(_exportFixture).writeAsString(backup, flush: true));
+        () => File(_exportFixture).writeAsString(backup, flush: true),
+      );
     }
     await _tap(tester, find.text('关闭'));
 
@@ -298,8 +343,9 @@ void registerV02Acceptance({bool native = false}) {
 
     var verified = reopened;
     if (_importFixture.isNotEmpty) {
-      final incoming =
-          (await tester.runAsync(() => File(_importFixture).readAsString()))!;
+      final incoming = (await tester.runAsync(
+        () => File(_importFixture).readAsString(),
+      ))!;
       expect(incoming, isNot(contains(_sentinel)));
       final imported = WorkspaceData.decode(incoming);
       await _tap(tester, find.byTooltip('数据与设置'));
@@ -326,7 +372,9 @@ void registerV02Acceptance({bool native = false}) {
       expect(verified.financials.single.operatingCash, -20);
       expect(verified.financials.single.debt, isNull);
       expect(
-          verified.studies.single.source, contains(verified.sources.single.id));
+        verified.studies.single.source,
+        contains(verified.sources.single.id),
+      );
       expect(verified.reviews.first.text, contains(verified.sources.single.id));
       expect(verified.reviews.last.text, _review);
       expect(verified.reviews.length, 3);
@@ -338,13 +386,15 @@ void registerV02Acceptance({bool native = false}) {
     }
     // Only fixture counts and deterministic risk values; no paths or credentials.
     // ignore: avoid_print
-    print('V02_ACCEPTANCE platform=${Platform.operatingSystem} '
-        'schema=${verified.toJson()['schemaVersion']} '
-        'companies=${verified.watchlist.length} sources=${verified.sources.length} '
-        'financials=${verified.financials.length} reviews=${verified.reviews.length} '
-        'assets=${verified.assets} profit=${verified.profitRate} '
-        'stress=${verified.stressLoss(.3)} '
-        'exchange=${_importFixture.isNotEmpty}');
+    print(
+      'V02_ACCEPTANCE platform=${Platform.operatingSystem} '
+      'schema=${verified.toJson()['schemaVersion']} '
+      'companies=${verified.watchlist.length} sources=${verified.sources.length} '
+      'financials=${verified.financials.length} reviews=${verified.reviews.length} '
+      'assets=${verified.assets} profit=${verified.profitRate} '
+      'stress=${verified.stressLoss(.3)} '
+      'exchange=${_importFixture.isNotEmpty}',
+    );
     await tester.pumpWidget(const SizedBox());
     await _settle(tester);
   });

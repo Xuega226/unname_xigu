@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:fast_gbk/fast_gbk.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,8 @@ import 'package:lianghua_assistant/storage.dart';
 
 const _exportFixture = String.fromEnvironment('V05_EXPORT_FIXTURE');
 const _importFixture = String.fromEnvironment('V05_IMPORT_FIXTURE');
+const _v06ExportFixture = String.fromEnvironment('V06_EXPORT_FIXTURE');
+const _v06ImportFixture = String.fromEnvironment('V06_IMPORT_FIXTURE');
 const _sentinel = 'v05-offline-test-only-sentinel';
 const _autoLabel = '应用在前台时，每 15 秒自动读取同一文件';
 const _reviewLabel = '已核对账户、完整持仓、现金和估值日期';
@@ -210,7 +213,7 @@ void _preserved(WorkspaceData data, WorkspaceData initial) {
   }
   expect(
     data.reviews.firstWhere((r) => r.id == 'v05-review').toJson(),
-    initial.reviews.single.toJson(),
+    initial.reviews.firstWhere((r) => r.id == 'v05-review').toJson(),
   );
 }
 
@@ -221,15 +224,30 @@ Future<void> _settle(WidgetTester tester) async {
     );
     await tester.pump(const Duration(milliseconds: 50));
     final awaitingCsvDetails = find.text('核对 CSV 的账户信息').evaluate().isNotEmpty;
-    if (find.byType(CircularProgressIndicator).evaluate().isEmpty &&
-        find.byType(LinearProgressIndicator).evaluate().isEmpty &&
-        (awaitingCsvDetails || find.text('正在读取…').evaluate().isEmpty)) {
+    final awaitingEncoding = find.text('核对文件编码').evaluate().isNotEmpty;
+    final awaitingMapping = find.text('核对 CSV 列映射').evaluate().isNotEmpty;
+    final indeterminateCircular = tester
+        .widgetList<CircularProgressIndicator>(
+          find.byType(CircularProgressIndicator),
+        )
+        .any((indicator) => indicator.value == null);
+    final indeterminateLinear = tester
+        .widgetList<LinearProgressIndicator>(
+          find.byType(LinearProgressIndicator),
+        )
+        .any((indicator) => indicator.value == null);
+    if (!indeterminateCircular &&
+        !indeterminateLinear &&
+        (awaitingCsvDetails ||
+            awaitingEncoding ||
+            awaitingMapping ||
+            find.text('正在读取…').evaluate().isEmpty)) {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       return;
     }
   }
-  fail('v0.5 isolated disk operation did not finish');
+  fail('isolated disk operation did not finish');
 }
 
 Future<void> _tap(WidgetTester tester, Finder finder) async {
@@ -275,12 +293,15 @@ Future<void> _waitUntil(
       () => Future<void>.delayed(const Duration(milliseconds: 20)),
     );
   }
-  fail('v0.5 $operation did not reach its observable result');
+  fail('$operation did not reach its observable result');
 }
 
-void registerV05Acceptance({bool native = false}) {
+void registerV05Acceptance({bool native = false, bool v06 = false}) {
+  final version = v06 ? 'v0.6' : 'v0.5';
+  final exportFixture = v06 ? _v06ExportFixture : _exportFixture;
+  final importFixture = v06 ? _v06ImportFixture : _importFixture;
   testWidgets(
-    'v0.5 isolated disk portfolio review, foreground sync and portable backup',
+    '$version isolated disk portfolio review, foreground sync and portable backup',
     (tester) async {
       if (!native) {
         tester.view.physicalSize = const Size(1280, 1000);
@@ -294,7 +315,9 @@ void registerV05Acceptance({bool native = false}) {
         );
       }
       final root = (await tester.runAsync(
-        () => Directory.systemTemp.createTemp('xigu-v05-acceptance-'),
+        () => Directory.systemTemp.createTemp(
+          v06 ? 'xigu-v06-acceptance-' : 'xigu-v05-acceptance-',
+        ),
       ))!;
       addTearDown(() async {
         await tester.runAsync(() async {
@@ -329,10 +352,19 @@ void registerV05Acceptance({bool native = false}) {
         await csvStore.save(WorkspaceData.empty());
         await reportFiles.put(initial.documents.single.sha256, pdf);
         await file.writeAsString(_snapshot(), flush: true);
-        await csv.writeAsString(
-          '证券代码,证券名称,持仓数量,市价\n000001,虚构第二证券,30,8\n600001,虚构测试公司,60,12',
-          flush: true,
-        );
+        if (v06) {
+          await csv.writeAsBytes(
+            const GbkCodec().encode(
+              '编号;简称;总股数;现价\n000001;虚构第二证券;30;8\n600001;虚构测试公司;60;12',
+            ),
+            flush: true,
+          );
+        } else {
+          await csv.writeAsString(
+            '证券代码,证券名称,持仓数量,市价\n000001,虚构第二证券,30,8\n600001,虚构测试公司,60,12',
+            flush: true,
+          );
+        }
       });
       Widget app(
         LocalWorkspaceStore store,
@@ -486,8 +518,13 @@ void registerV05Acceptance({bool native = false}) {
           imported.holdings.map((h) => h.toJson()).toList(),
         );
         expect(failed.cash, imported.cash);
-        expect(failed.encode(), imported.encode());
+        expect(
+          failed.toJson()..remove('portfolioHistory'),
+          imported.toJson()..remove('portfolioHistory'),
+        );
+        expect(failed.portfolioHistory.last.errorCode, 'invalid_snapshot');
         _preserved(failed, initial);
+        imported = failed;
         await tester.runAsync(
           () => file.writeAsString(
             _snapshot(quantity: 200, cash: 4500, hour: 10),
@@ -520,6 +557,167 @@ void registerV05Acceptance({bool native = false}) {
         expect((await _read(tester, first)).encode(), stopped);
       }
 
+      if (v06) {
+        final beforeCharts = await _read(tester, first);
+        final stocks = Platform.isWindows ? 2800.0 : 1600.0;
+        final assets = Platform.isWindows ? 7300.0 : 6600.0;
+        expect(beforeCharts.stocks, stocks);
+        expect(beforeCharts.assets, assets);
+        await _tap(tester, find.byKey(const ValueKey('risk-asset-details')));
+        expect(
+          find.textContaining(
+            '合计 ¥${assets.toStringAsFixed(2)}；估值日期 2026-10-01',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('现金 ¥${beforeCharts.cash.toStringAsFixed(2)}'),
+          findsWidgets,
+        );
+        await _tap(tester, find.widgetWithText(TextButton, '关闭'));
+        await _tap(
+          tester,
+          find.byKey(const ValueKey('risk-principal-details')),
+        );
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.textContaining(
+              '盈亏金额 ¥${(assets - 9500).toStringAsFixed(2)}',
+            ),
+          ),
+          findsOneWidget,
+        );
+        await _tap(tester, find.widgetWithText(TextButton, '关闭'));
+        final slider = find.byKey(const ValueKey('risk-stress-slider'));
+        await _tap(tester, slider); // Actual pointer tap at the track midpoint.
+        expect(tester.widget<Slider>(slider).value, .5);
+        expect(
+          find.text('情景后资产 ¥${(assets - stocks / 2).toStringAsFixed(2)}'),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            '账户损失 ${(stocks / 2 / assets * 100).toStringAsFixed(1)}% · 损失金额 ¥${(stocks / 2).toStringAsFixed(2)}',
+          ),
+          findsOneWidget,
+        );
+        expect((await _read(tester, first)).encode(), beforeCharts.encode());
+
+        // Funding and company research are edited through their production UI.
+        await _tap(tester, find.byTooltip('数据与设置'));
+        await _tap(tester, find.text('账户设置').last);
+        final accountFields = find.byType(TextFormField);
+        await tester.ensureVisible(accountFields.at(1));
+        await tester.enterText(accountFields.at(1), '11000');
+        await _tap(tester, find.widgetWithText(FilledButton, '保存'));
+        await _waitUntil(
+          tester,
+          'updated capital flow',
+          () async => (await first.load())?.deposits == 11000,
+        );
+        await _tap(tester, find.text('公司研究').last);
+        await _tap(tester, find.byTooltip('编辑研究卡').first);
+        final studyFields = find.byType(TextFormField);
+        await tester.ensureVisible(studyFields.at(3));
+        await tester.enterText(studyFields.at(3), 'v0.6 导入后保留的新研究判断');
+        await _tap(tester, find.widgetWithText(FilledButton, '保存'));
+        await _waitUntil(
+          tester,
+          'updated study',
+          () async =>
+              (await first.load())?.studies.single.thesis == 'v0.6 导入后保留的新研究判断',
+        );
+        final afterResearch = await _read(tester, first);
+        expect(afterResearch.principal, 10500);
+        expect(afterResearch.studyVersions.length, 2);
+        expect(afterResearch.financials.single.operatingCash, -20);
+        await _tap(tester, find.text('账户风控').last);
+
+        if (Platform.isWindows) {
+          // The file was changed after stopping earlier. A fresh preview binds
+          // that current complete snapshot, then history undo must shut it off.
+          await importFile();
+          await _tap(tester, find.text(_autoLabel));
+          await _tap(tester, find.text(_reviewLabel));
+          await _tap(tester, find.widgetWithText(FilledButton, '确认导入'));
+          await _waitUntil(
+            tester,
+            'v06 rebound before history restore',
+            () async => await settings.read() != null,
+          );
+        }
+        final beforeUndo = await _read(tester, first);
+        _preserved(beforeUndo, afterResearch);
+        final target = beforeUndo.portfolioHistory.lastWhere(
+          (entry) => entry.canRestore,
+        );
+        await _tap(tester, find.byKey(ValueKey('history-diff-${target.id}')));
+        expect(find.text('完整持仓差异'), findsOneWidget);
+        expect(find.textContaining('证券并集 2 项'), findsOneWidget);
+        expect(find.textContaining('股数：'), findsWidgets);
+        expect(find.textContaining('价格：'), findsWidgets);
+        expect(find.textContaining('现金：'), findsOneWidget);
+        await _tap(tester, find.widgetWithText(TextButton, '关闭'));
+        await _tap(
+          tester,
+          find.byKey(ValueKey('history-restore-${target.id}')),
+        );
+        expect(find.text('恢复导入前的持仓？'), findsOneWidget);
+        await _tap(tester, find.widgetWithText(TextButton, '取消'));
+        expect((await _read(tester, first)).encode(), beforeUndo.encode());
+        if (Platform.isWindows) {
+          expect(await tester.runAsync(settings.read), isNotNull);
+        }
+        await _tap(
+          tester,
+          find.byKey(ValueKey('history-restore-${target.id}')),
+        );
+        await _tap(tester, find.widgetWithText(FilledButton, '确认恢复'));
+        await _waitUntil(
+          tester,
+          'history restored and binding removed',
+          () async =>
+              (await first.load())?.portfolioHistory.last.action == 'restore' &&
+              await settings.read() == null,
+        );
+        final undone = await _read(tester, first);
+        expect(undone.cash, target.before!.cash);
+        expect(undone.priceDate, target.before!.priceDate);
+        expect(
+          undone.holdings.map((h) => h.toJson()).toList(),
+          target.before!.holdings.map((h) => h.toJson()).toList(),
+        );
+        expect(undone.portfolioHistory.last.referenceId, target.id);
+        expect(
+          undone.portfolioHistory.length,
+          beforeUndo.portfolioHistory.length + 1,
+        );
+        _preserved(undone, afterResearch);
+        expect(
+          undone.reviews.map((r) => r.toJson()).toList(),
+          afterResearch.reviews.map((r) => r.toJson()).toList(),
+        );
+        expect(
+          await tester.runAsync(
+            () => reportFiles.read(initial.documents.single.sha256),
+          ),
+          pdf,
+        );
+        expect(find.text('检查文件更新'), findsNothing);
+        if (Platform.isWindows) {
+          await tester.runAsync(
+            () => file.writeAsString(
+              _snapshot(quantity: 400, cash: 3000, hour: 12),
+              flush: true,
+            ),
+          );
+          await tester.pump(const Duration(seconds: 16));
+          await _settle(tester);
+          expect((await _read(tester, first)).encode(), undone.encode());
+        }
+      }
+
       await _tap(tester, find.byTooltip('数据与设置'));
       await _tap(tester, find.text('导出备份'));
       final backup = tester
@@ -527,14 +725,14 @@ void registerV05Acceptance({bool native = false}) {
           .controller!
           .text;
       final exported = WorkspaceData.decode(backup);
-      expect(exported.toJson()['schemaVersion'], 4);
+      expect(exported.toJson()['schemaVersion'], 6);
       expect(backup, isNot(contains(file.path)));
       expect(backup, isNot(contains(_sentinel)));
       expect(backup, isNot(contains(base64Encode(pdf))));
       expect(backup, isNot(contains('originalBase64')));
-      if (_exportFixture.isNotEmpty) {
+      if (exportFixture.isNotEmpty) {
         await tester.runAsync(
-          () => File(_exportFixture).writeAsString(backup, flush: true),
+          () => File(exportFixture).writeAsString(backup, flush: true),
         );
       }
       await _tap(tester, find.text('关闭'));
@@ -544,9 +742,9 @@ void registerV05Acceptance({bool native = false}) {
         _DiskSettings(settings.file),
       );
       expect((await _read(tester, first)).encode(), exported.encode());
-      final incoming = _importFixture.isEmpty
+      final incoming = importFixture.isEmpty
           ? backup
-          : (await tester.runAsync(() => File(_importFixture).readAsString()))!;
+          : (await tester.runAsync(() => File(importFixture).readAsString()))!;
       final expected = WorkspaceData.decode(incoming);
       await reopen(
         second,
@@ -566,7 +764,12 @@ void registerV05Acceptance({bool native = false}) {
       );
       final restored = await _read(tester, second);
       expect(restored.encode(), expected.encode());
-      _preserved(restored, initial);
+      _preserved(restored, v06 ? expected : initial);
+      if (v06) {
+        expect(restored.deposits, 11000);
+        expect(restored.studies.single.thesis, 'v0.6 导入后保留的新研究判断');
+        expect(restored.portfolioHistory.last.action, 'restore');
+      }
       expect(restored.financials.single.operatingCash, -20);
       expect(restored.financials.single.adjustedProfit, isNull);
       expect(restored.documents.single.origin!.isRevision, isTrue);
@@ -597,6 +800,11 @@ void registerV05Acceptance({bool native = false}) {
       );
       await _tap(tester, find.text('账户风控').last);
       await importFile();
+      if (v06) {
+        expect(find.text('核对文件编码'), findsOneWidget);
+        expect((await _read(tester, csvStore)).portfolioHistory, isEmpty);
+        await _tap(tester, find.byKey(const ValueKey('broker-encoding-gbk')));
+      }
       expect(find.text('核对 CSV 的账户信息'), findsOneWidget);
       final fields = find.byType(TextFormField);
       final values = ['虚构验收券商', '虚构 CSV 账户', '2026-10-01', '1234'];
@@ -607,7 +815,23 @@ void registerV05Acceptance({bool native = false}) {
         await _settle(tester);
       }
       await _tap(tester, find.text('保存'));
+      if (v06) {
+        expect(find.text('核对 CSV 列映射'), findsOneWidget);
+        for (final field in const {
+          'code': '1. 编号 · 000001',
+          'name': '2. 简称 · 虚构第二证券',
+          'quantity': '3. 总股数 · 30',
+          'price': '4. 现价 · 8',
+        }.entries) {
+          await _tap(tester, find.byKey(ValueKey('broker-map-${field.key}')));
+          await _tap(tester, find.text(field.value).last);
+        }
+        await _tap(tester, find.text('应用列映射'));
+      }
       expect((await _read(tester, csvStore)).holdings, isEmpty);
+      if (v06) {
+        expect((await _read(tester, csvStore)).portfolioHistory, isEmpty);
+      }
       expect(
         tester
             .widget<FilledButton>(find.widgetWithText(FilledButton, '确认导入'))
@@ -621,6 +845,7 @@ void registerV05Acceptance({bool native = false}) {
       expect(csvResult.assets, 2194);
       expect(csvResult.holdings.length, 2);
       expect(csvResult.portfolioImport!.format, 'csv');
+      if (v06) expect(csvResult.portfolioHistory.single.action, 'import');
       await reopen(
         LocalWorkspaceStore(csvStore.directory),
         csv,
@@ -629,11 +854,11 @@ void registerV05Acceptance({bool native = false}) {
       expect((await _read(tester, csvStore)).encode(), csvResult.encode());
       // ignore: avoid_print
       print(
-        'V05_ACCEPTANCE platform=${Platform.operatingSystem} native=$native schema=4 json=true csv=true cancelNoWrite=true protectedResearch=true origin=true negativeCashFlow=-20 portableRestore=true bindingPathAbsent=true stoppedNoWrite=true windowsSync=${Platform.isWindows} crossPlatform=${_importFixture.isNotEmpty} assets=${restored.assets} principal=${restored.principal}',
+        '${v06 ? 'V06' : 'V05'}_ACCEPTANCE platform=${Platform.operatingSystem} native=$native schema=6 json=true csv=true gbkMapping=$v06 riskCharts=$v06 historyUndo=$v06 cancelNoWrite=true protectedResearch=true origin=true negativeCashFlow=-20 portableRestore=true bindingPathAbsent=true stoppedNoWrite=true windowsSync=${Platform.isWindows} crossPlatform=${importFixture.isNotEmpty} assets=${restored.assets} principal=${restored.principal}',
       );
       await tester.pumpWidget(const SizedBox());
       await _settle(tester);
     },
-    timeout: const Timeout(Duration(minutes: 5)),
+    timeout: Timeout(Duration(minutes: v06 ? 8 : 5)),
   );
 }
