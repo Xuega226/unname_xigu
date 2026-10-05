@@ -347,6 +347,17 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     final desktop = MediaQuery.sizeOf(context).width >= 760;
     return Scaffold(
       appBar: AppBar(
+        leading: Padding(
+          padding: const EdgeInsets.all(10),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(9),
+            child: Image.asset(
+              'assets/branding/unnameko-stock-icon-v2.png',
+              semanticLabel: '未名溪谷项目图标',
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
         title: const Text(
           '未名溪谷',
           style: TextStyle(fontWeight: FontWeight.w700),
@@ -432,26 +443,22 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                                     .textTheme
                                     .headlineMedium,
                               ),
-                              Chip(
-                                label: Text(
-                                  data.isDemo
-                                      ? '虚构模拟数据'
-                                      : data.portfolioImport == null
-                                      ? '手动录入 · 未核验'
-                                      : '含持仓文件导入 · 研究待核验',
+                              if (data.isDemo)
+                                Chip(
+                                  label: const Text('虚构模拟数据'),
+                                  avatar: const Icon(
+                                    Icons.info_outline,
+                                    size: 16,
+                                  ),
                                 ),
-                                avatar: const Icon(
-                                  Icons.info_outline,
-                                  size: 16,
-                                ),
-                              ),
                             ],
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            '计划持有约一年 · 可以延长 · 亏损偏好 ${percentage(data.lossBudget)}',
-                            style: const TextStyle(color: Color(0xFF586E75)),
-                          ),
+                          if (_page == 0 || _page == 2)
+                            Text(
+                              '计划持有约一年 · 可以延长 · 亏损偏好 ${percentage(data.lossBudget)}',
+                              style: const TextStyle(color: Color(0xFF586E75)),
+                            ),
                           const SizedBox(height: 20),
                           if (_page == 0) ..._overview(data),
                           if (_page == 1) ..._studies(data),
@@ -460,7 +467,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                           if (_page == 4) ..._quant(data),
                           const SizedBox(height: 24),
                           const Text(
-                            'v0.7.1 · 可配置因子规则与评分 · 历史行情与资金流水 · 单账户风控',
+                            'v0.7.2 · 数据保存在本机',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF647A80),
@@ -482,7 +489,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
   List<Widget> _overview(WorkspaceData d) => [
     Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: ink,
         borderRadius: BorderRadius.circular(20),
@@ -500,13 +507,24 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
           ),
           const SizedBox(height: 12),
           const Text(
-            '把依据写下来，把反面证据留下来。\n一年后复查投资假设，持续持有也需要新的依据。',
-            style: TextStyle(color: Color(0xFFD1E1E3), height: 1.7),
+            '研究公司 · 核对账户 · 用规则验证判断',
+            style: TextStyle(color: Color(0xFFD1E1E3)),
           ),
           const SizedBox(height: 16),
-          FilledButton.tonal(
-            onPressed: () => setState(() => _page = 1),
-            child: const Text('开始研究公司'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonal(
+                onPressed: () => _navigate(1),
+                child: const Text('开始研究公司'),
+              ),
+              OutlinedButton(
+                onPressed: () => _navigate(2),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
+                child: const Text('查看账户风险'),
+              ),
+            ],
           ),
         ],
       ),
@@ -514,21 +532,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
     const SizedBox(height: 18),
     _metrics(d),
     const SizedBox(height: 18),
-    _panel('这一轮要完成什么', [
+    _panel('研究进度', [
       _line(
         Icons.fact_check_outlined,
         '补齐公司资料',
-        '${d.studies.length} 张研究卡；关键数字需要原始来源、单位与披露日期。',
+        '${d.studies.length} 家公司 · ${d.sources.length} 段原文',
       ),
       _line(
         Icons.balance_outlined,
         '检查账户风险',
-        '${d.holdings.length} 项持仓；先看集中程度，再做指定情景的压力测试。',
+        '${d.holdings.length} 项持仓 · 估值 ${d.priceDate}',
       ),
       _line(
         Icons.history_outlined,
         '记录复查依据',
-        '${d.reviews.length} 条记录；保留原始判断，不用新结论覆盖旧记录。',
+        '${d.reviews.length} 条复查 · ${d.studies.where((s) => s.reviewTasks.any((t) => t.status == '待验证')).length} 家有待验证事项',
       ),
     ]),
     const SizedBox(height: 16),
@@ -654,7 +672,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       spacing: 12,
       runSpacing: 8,
       children: [
-        FilledButton.icon(
+        OutlinedButton.icon(
           onPressed: () => _studyDialog(),
           icon: const Icon(Icons.add),
           label: const Text('新增研究卡'),
@@ -689,15 +707,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
             style: const TextStyle(color: teal),
           ),
           const SizedBox(height: 12),
-          _studySection('主营业务与财务事实', s.business),
-          _studySection('一年投资假设与验证指标', s.thesis),
-          _studySection('反面证据与缺失信息', s.counterEvidence),
-          _studySection('需要重新评估的条件', s.reviewCondition),
-          _studySection('来源、报告期、披露日期与单位', s.source),
-          Text(
-            '录入更新：${s.updatedAt}',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
+          _studySummary('主营业务', s.business),
+          _studySummary('当前判断', s.thesis),
+          if (s.counterEvidence.trim().isNotEmpty)
+            _studySummary('反面证据', s.counterEvidence),
           Text(
             '${reviewDueLabel(s)} · ${s.reviewTasks.where((t) => t.status == '待验证').length} 项待验证',
             style: const TextStyle(color: teal),
@@ -713,37 +726,34 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
                   '资料与财务（${d.sources.where((e) => e.studyId == s.id).length} 段原文）',
                 ),
               ),
-              FilledButton.tonal(
-                onPressed: d.isDemo ? null : () => _draft(s),
-                child: const Text('生成 AI 草稿'),
-              ),
-              OutlinedButton(
-                onPressed: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => FinancialTrendDialog(
-                    study: s,
-                    records: d.financials
-                        .where((f) => f.studyId == s.id)
-                        .toList(),
-                  ),
-                ),
-                child: const Text('多年度财务变化'),
-              ),
-              OutlinedButton(
-                onPressed: () => _reviewPlan(s),
-                child: const Text('复查计划与清单'),
-              ),
               TextButton(
-                onPressed: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => StudyHistoryDialog(
-                    study: s,
-                    versions: d.studyVersions
-                        .where((v) => v.study.id == s.id)
-                        .toList(),
+                key: ValueKey('study-full-${s.id}'),
+                onPressed: () => _readStudy(s),
+                child: const Text('阅读完整研究'),
+              ),
+              PopupMenuButton<String>(
+                tooltip: '更多研究操作',
+                onSelected: (action) => _studyAction(action, s, d),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'draft',
+                    enabled: !d.isDemo,
+                    child: const Text('生成 AI 草稿'),
+                  ),
+                  const PopupMenuItem(value: 'trend', child: Text('多年度财务变化')),
+                  const PopupMenuItem(value: 'review', child: Text('复查计划与清单')),
+                  const PopupMenuItem(value: 'history', child: Text('研究版本对照')),
+                ],
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('更多研究操作'),
+                      Icon(Icons.expand_more, size: 18),
+                    ],
                   ),
                 ),
-                child: const Text('研究版本对照'),
               ),
             ],
           ),
@@ -757,6 +767,85 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       const SizedBox(height: 14),
     ],
   ];
+  Widget _studySummary(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Color(0xFF647A80)),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value.trim().isEmpty ? '尚未录入' : value,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    ),
+  );
+  Future<void> _readStudy(Study s) => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('${s.name} · ${s.code}'),
+      content: SizedBox(
+        width: 680,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _studySection('主营业务与财务事实', s.business),
+              _studySection('一年投资假设与验证指标', s.thesis),
+              _studySection('反面证据与缺失信息', s.counterEvidence),
+              _studySection('需要重新评估的条件', s.reviewCondition),
+              _studySection('来源、报告期、披露日期与单位', s.source),
+              Text('录入更新：${s.updatedAt}'),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    ),
+  );
+  Future<void> _studyAction(
+    String action,
+    Study study,
+    WorkspaceData data,
+  ) async {
+    switch (action) {
+      case 'draft':
+        if (!data.isDemo) await _draft(study);
+      case 'trend':
+        await showDialog<void>(
+          context: context,
+          builder: (_) => FinancialTrendDialog(
+            study: study,
+            records: data.financials
+                .where((f) => f.studyId == study.id)
+                .toList(),
+          ),
+        );
+      case 'review':
+        await _reviewPlan(study);
+      case 'history':
+        await showDialog<void>(
+          context: context,
+          builder: (_) => StudyHistoryDialog(
+            study: study,
+            versions: data.studyVersions
+                .where((v) => v.study.id == study.id)
+                .toList(),
+          ),
+        );
+    }
+  }
+
   Widget _studySection(String label, String value) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: Column(
@@ -796,37 +885,38 @@ class _WorkspaceScreenState extends State<WorkspaceScreen>
       ],
     ),
     const SizedBox(height: 16),
-    _panel('券商持仓导入', [
-      if (d.isDemo) const Text('真实持仓请先从菜单新建空白工作区。'),
-      if (d.portfolioImport == null)
-        const Text('可导入完整 CSV / 标准 JSON。账户直连尚待选定券商。')
-      else ...[
-        Text(
-          '${d.portfolioImport!.broker} · ${d.portfolioImport!.accountAlias} · ${d.portfolioImport!.format.toUpperCase()} 文件',
-        ),
-        Text('快照时间：${brokerTimeLabel(d.portfolioImport!.capturedAt)}'),
-        Text('上次导入：${brokerTimeLabel(d.portfolioImport!.importedAt)}'),
-        if (d.portfolioImport!.modified) const Text('导入后已人工修改或应用行情，自动读取已关闭。'),
-      ],
-      if (_brokerSync != null) ...[
-        const SizedBox(height: 8),
-        Text(_brokerSync!.status),
-        if (_brokerSync!.settings != null)
-          Wrap(
-            spacing: 8,
-            children: [
-              TextButton(
-                onPressed: _brokerSync!.check,
-                child: const Text('检查文件更新'),
-              ),
-              TextButton(
-                onPressed: _stopBrokerSync,
-                child: const Text('关闭自动读取'),
-              ),
-            ],
+    if (d.portfolioImport != null || _brokerSync?.settings != null)
+      _panel('持仓来源与同步', [
+        if (d.isDemo) const Text('真实持仓请先从菜单新建空白工作区。'),
+        if (d.portfolioImport == null)
+          const Text('可导入完整 CSV / 标准 JSON。账户直连尚待选定券商。')
+        else ...[
+          Text(
+            '${d.portfolioImport!.broker} · ${d.portfolioImport!.accountAlias} · ${d.portfolioImport!.format.toUpperCase()} 文件',
           ),
-      ],
-    ]),
+          Text('快照时间：${brokerTimeLabel(d.portfolioImport!.capturedAt)}'),
+          Text('上次导入：${brokerTimeLabel(d.portfolioImport!.importedAt)}'),
+          if (d.portfolioImport!.modified) const Text('导入后已人工修改或应用行情，自动读取已关闭。'),
+        ],
+        if (_brokerSync != null) ...[
+          const SizedBox(height: 8),
+          Text(_brokerSync!.status),
+          if (_brokerSync!.settings != null)
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: _brokerSync!.check,
+                  child: const Text('检查文件更新'),
+                ),
+                TextButton(
+                  onPressed: _stopBrokerSync,
+                  child: const Text('关闭自动读取'),
+                ),
+              ],
+            ),
+        ],
+      ]),
     const SizedBox(height: 16),
     _metrics(d),
     const SizedBox(height: 16),

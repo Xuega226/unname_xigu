@@ -1,6 +1,8 @@
-# 未名溪谷 v0.7.1
+# 未名溪谷 v0.7.2
 
 Windows / Android 共用的 Flutter 研究与账户风控工具。默认保留虚构演示，真实研究从空白工作区开始。第七轮增加可配置因子规则、筛选与评分、贡献及公司对照图、历史行情与带日期资金流水；保留年报获取、财务核验、研究复查、风险图表和单账户持仓历史。
+
+v0.7.2 简化页面：研究卡先显示摘要，资料原文与财务核验分开，量化参数与高级设置按需展开；应用内、Windows 与 Android 统一使用项目已有的未名子股票分析图标。常用入口见 [页面操作说明](docs/ui-simplification.md)。
 
 ## 使用流程
 
@@ -95,7 +97,7 @@ Windows 便携包必须完整解压，保留 exe、DLL 与 data 一起使用。A
 
 自动获取使用巨潮公开网站的 HTTPS 接口，可能遇到访问限制、缺失公告或接口变化；界面显示错误与不完整结果，可以重试或手动导入。当前自动范围是沪深 A 股近三年年报正文，季报批量获取、OCR、全市场排名、系统后台通知、云端同步或自动交易留待后续。AI 仅整理选定资料；引用及数字存在于原文，并不证明指标含义、公司归属或本期列正确，仍须人工核对。修订公告的数字披露版本默认“未注明”，请核对重述口径后比较；其他设备需配置自己的密钥。
 
-本轮计划见 [v0.7 计划](docs/v0.7-plan.md)，本次结果见 [v0.7.1 验收](docs/v0.7-acceptance.md)。文件格式见 [持仓导入说明](docs/broker-holdings-import.md)。历史记录保留在 [v0.6.1 验收](docs/v0.6-acceptance.md)、[v0.5.1 验收](docs/v0.5-acceptance.md)、[v0.4.3 验收](docs/v0.4-acceptance.md)、[v0.3.1 验收](docs/v0.3-acceptance.md)及 [v0.2.1 验收](docs/v0.2-acceptance.md)。
+本轮计划见 [v0.7 计划](docs/v0.7-plan.md)，页面调整结果见 [v0.7.2 验收](docs/v0.7.2-acceptance.md)，量化功能验收见 [v0.7.1 验收](docs/v0.7-acceptance.md)。文件格式见 [持仓导入说明](docs/broker-holdings-import.md)。历史记录保留在 [v0.6.1 验收](docs/v0.6-acceptance.md)、[v0.5.1 验收](docs/v0.5-acceptance.md)、[v0.4.3 验收](docs/v0.4-acceptance.md)、[v0.3.1 验收](docs/v0.3-acceptance.md)及 [v0.2.1 验收](docs/v0.2-acceptance.md)。
 
 v0.7 按用户要求继续采用单账户，因子/规则选股与评分已接入；回测安排在 v0.8，见 [量化与风险路线图](docs/quant-risk-roadmap.md)。
 

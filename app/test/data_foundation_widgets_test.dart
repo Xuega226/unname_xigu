@@ -10,6 +10,12 @@ import 'data_foundation_test.dart'
     show historyJson, FakeHistoryTransport, response, row;
 
 Future<void> click(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty &&
+      find.byKey(const Key('funding-details')).evaluate().isNotEmpty) {
+    await tester.ensureVisible(find.byKey(const Key('funding-details')));
+    await tester.tap(find.byKey(const Key('funding-details')));
+    await tester.pumpAndSettle();
+  }
   await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pumpAndSettle();
@@ -296,6 +302,8 @@ void main() {
           saved: (_) {},
         ),
       );
+      expect(find.byKey(const Key('funding-delete-0')), findsNothing);
+      await click(tester, find.byKey(const Key('funding-details')));
       expect(find.byKey(const Key('funding-delete-0')), findsOneWidget);
       expect(find.byKey(const Key('funding-delete-24')), findsNothing);
       await click(tester, find.byKey(const Key('funding-next')));

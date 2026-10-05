@@ -1,7 +1,7 @@
 name: lianghua_assistant
 description: A local-first stock research and portfolio review prototype.
 publish_to: none
-version: 0.7.1+11
+version: 0.7.2+12
 environment:
   sdk: '>=3.13.0 <4.0.0'
 dependencies:
@@ -26,6 +26,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/branding/unnameko-stock-icon-v2.png
     - integration_test/fixtures/fictional-report.pdf
     - integration_test/fixtures/scanned-report.pdf
     - integration_test/fixtures/encrypted-report.pdf

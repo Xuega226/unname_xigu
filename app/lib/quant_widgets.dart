@@ -156,15 +156,7 @@ class _QuantResearchPanelState extends State<QuantResearchPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('量化研究', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 8),
-        const Text(
-          '在最多 10 家自选公司中检验自己的规则。综合分 = 100 × 命中规则的权重之和 ÷ 全部规则权重之和。缺失或不适用的数据不按 0 处理，也不重新分配权重；资料不足时不评分、不入选。',
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          '仅使用观察日前（不含观察日）的日线与已披露资料。当天 17 点后可获取日线，但评分在次日观察时才纳入；同日披露缺少时分信息，也从次日纳入。今天取回的资料不等于当年采集的快照。结果仅供研究，保存规则不会修改持仓、原研究或发送模型请求。',
-        ),
+        const Text('在自选公司中检验规则。示例默认不启用，资料缺失时保留原因。'),
         const SizedBox(height: 12),
         Wrap(
           spacing: 8,
@@ -204,7 +196,35 @@ class _QuantResearchPanelState extends State<QuantResearchPanel> {
               : '${config.name} · 参数 v${config.revision}',
           child: config == null
               ? const Text('示例默认不启用。创建参数后，需人工核对并明确确认，才开始评分与比较。')
-              : _ConfigText(config),
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(config.confirmed ? '已核对并启用' : '未启用：不计算综合分与排名'),
+                    Text(
+                      '观察日 ${config.asOfDate} · ${config.rules.length} 条规则 · ${config.scope}口径',
+                    ),
+                    ExpansionTile(
+                      key: const ValueKey('quant-current-parameters'),
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('查看当前参数'),
+                      children: [_ConfigText(config)],
+                    ),
+                  ],
+                ),
+        ),
+        ExpansionTile(
+          key: const ValueKey('quant-calculation-info'),
+          title: const Text('计算说明'),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          children: const [
+            Text(
+              '综合分 = 100 × 命中规则的权重之和 ÷ 全部规则权重之和。缺失或不适用的数据不按 0 处理，也不重新分配权重；资料不足时不评分、不入选。',
+            ),
+            SizedBox(height: 8),
+            Text(
+              '仅使用观察日前（不含观察日）的日线与已披露资料。当天 17 点后可获取日线，但评分在次日观察时才纳入；同日披露缺少时分信息，也从次日纳入。今天取回的资料不等于当年采集的快照。结果仅供研究，保存规则不会修改持仓、原研究或发送模型请求。',
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         _Panel(
@@ -212,12 +232,11 @@ class _QuantResearchPanelState extends State<QuantResearchPanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                '当前样本 ${widget.data.watchlist.length} 家；这是自选样本内的比较，不是全市场排名。${evaluation.status}',
-              ),
+              Text('自选样本 ${widget.data.watchlist.length} 家；结果仅在当前样本内比较。'),
+              if (config == null || !config.confirmed) Text(evaluation.status),
               if (config != null && config.confirmed)
                 Text(
-                  '入选 ${evaluation.rows.where((r) => r.selected).length} 家；只有完整资料、满足全部筛选条件且未被排除的公司入选。${config.rules.any((r) => r.weight > 0) ? '有综合分的入选公司参加样本内排名。' : '仅筛选：未设置评分权重，不显示综合分或排名。'}',
+                  '入选 ${evaluation.rows.where((r) => r.selected).length} 家。${config.rules.any((r) => r.weight > 0) ? '入选公司显示排名，未入选公司保留原因。' : '仅筛选：未设置评分权重，不显示综合分或排名。'}',
                 ),
               if (evaluation.rows.isEmpty) const Text('请先在公司研究中添加自选公司。'),
               for (final row in evaluation.rows) _company(row, evaluation),
@@ -226,52 +245,65 @@ class _QuantResearchPanelState extends State<QuantResearchPanel> {
         ),
         if (config != null) ...[
           const SizedBox(height: 12),
-          _comparison(evaluation),
+          ExpansionTile(
+            key: const ValueKey('quant-comparison'),
+            title: const Text('公司间因子对照'),
+            subtitle: const Text('展开查看原值图表与资料缺失原因'),
+            children: [_comparison(evaluation)],
+          ),
         ],
         const SizedBox(height: 12),
-        _Panel(
-          title: '经核验总股本',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                '市销率须使用公司总股本与可核验来源，不使用个人持仓数量。生效日、披露日、来源或已核验状态不足时保留未知。',
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton(
-                  key: const ValueKey('quant-add-capital'),
-                  onPressed: widget.data.watchlist.isEmpty ? null : _capital,
-                  child: const Text('记录总股本资料'),
+        ExpansionTile(
+          key: const ValueKey('quant-capital-section'),
+          title: const Text('总股本资料'),
+          subtitle: Text(
+            '${widget.data.quant.shareFacts.length} 条资料 · 已核验 ${widget.data.quant.shareFacts.where((f) => f.verified).length} · 待核验 ${widget.data.quant.shareFacts.where((f) => !f.verified).length}',
+          ),
+          childrenPadding: const EdgeInsets.all(16),
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '市销率须使用公司总股本与可核验来源，不使用个人持仓数量。生效日、披露日、来源或已核验状态不足时保留未知。',
                 ),
-              ),
-              if (widget.data.quant.shareFacts.isEmpty) const Text('暂无总股本资料。'),
-              for (final fact in widget.data.quant.shareFacts)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        '${fact.symbol} · ${_number(fact.totalShares)} 股 · ${fact.verified ? '已核验' : '待核验'}',
-                      ),
-                      Text(
-                        '生效 ${fact.effectiveDate}；披露 ${fact.disclosedAt}；来源 ${_sourceDescription(fact.sourceId)}',
-                      ),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton(
-                          key: ValueKey('quant-delete-capital-${fact.id}'),
-                          onPressed: () => _deleteCapital(fact),
-                          child: const Text('删除资料'),
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton(
+                    key: const ValueKey('quant-add-capital'),
+                    onPressed: widget.data.watchlist.isEmpty ? null : _capital,
+                    child: const Text('记录总股本资料'),
                   ),
                 ),
-            ],
-          ),
+                if (widget.data.quant.shareFacts.isEmpty)
+                  const Text('暂无总股本资料。'),
+                for (final fact in widget.data.quant.shareFacts)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '${fact.symbol} · ${_number(fact.totalShares)} 股 · ${fact.verified ? '已核验' : '待核验'}',
+                        ),
+                        Text(
+                          '生效 ${fact.effectiveDate}；披露 ${fact.disclosedAt}；来源 ${_sourceDescription(fact.sourceId)}',
+                        ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton(
+                            key: ValueKey('quant-delete-capital-${fact.id}'),
+                            onPressed: () => _deleteCapital(fact),
+                            child: const Text('删除资料'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
       ],
     );
@@ -594,6 +626,7 @@ class _ConfigDialog extends StatefulWidget {
 
 class _ConfigDialogState extends State<_ConfigDialog> {
   final _form = GlobalKey<FormState>();
+  final _advanced = ExpansibleController();
   late TextEditingController _name,
       _date,
       _window,
@@ -682,6 +715,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
     for (final rule in [..._rules, ..._retiredRules]) {
       rule.dispose();
     }
+    _advanced.dispose();
     super.dispose();
   }
 
@@ -692,7 +726,15 @@ class _ConfigDialogState extends State<_ConfigDialog> {
   });
 
   Future<void> _save() async {
-    if (_saving || !_form.currentState!.validate()) return;
+    if (_saving) return;
+    if (_integer(_window.text, 2, 250) != null ||
+        _integer(_age.text, 0, 365) != null ||
+        _integer(_reviewDays.text, 1, 3650) != null ||
+        _required(_reviewCondition.text) != null) {
+      _advanced.expand();
+      setState(() => _error = '请检查高级设置中标出的参数');
+    }
+    if (!_form.currentState!.validate()) return;
     setState(() {
       _saving = true;
       _error = null;
@@ -806,7 +848,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('每次保存创建新版本。参数变更会清除本次启用确认；请最后核对。示例仅展示用法，不代表您的策略。'),
+                const Text('保存为新版本；修改参数后请重新核对。示例默认未启用。'),
                 const SizedBox(height: 12),
                 _field(_name, '规则名称', 'quant-config-name', _required),
                 _field(
@@ -832,35 +874,45 @@ class _ConfigDialogState extends State<_ConfigDialog> {
                       : (value) => _changed(() => _scope = value!),
                 ),
                 const SizedBox(height: 12),
-                _field(
-                  _window,
-                  '动量窗口（日线观测间隔，2–250）',
-                  'quant-config-window',
-                  (v) => _integer(v, 2, 250),
-                ),
-                _field(
-                  _age,
-                  '价格最长距观察日（自然日，0–365）',
-                  'quant-config-age',
-                  (v) => _integer(v, 0, 365),
-                ),
-                _field(
-                  _excluded,
-                  '排除行业（顿号或逗号分隔）',
-                  'quant-config-excluded',
-                  (_) => null,
-                ),
-                _field(
-                  _reviewDays,
-                  '人工复查间隔（天）',
-                  'quant-config-review-days',
-                  (v) => _integer(v, 1, 3650),
-                ),
-                _field(
-                  _reviewCondition,
-                  '复查条件与人工操作约定',
-                  'quant-config-review-condition',
-                  _required,
+                ExpansionTile(
+                  key: const ValueKey('quant-config-advanced'),
+                  controller: _advanced,
+                  maintainState: true,
+                  tilePadding: EdgeInsets.zero,
+                  title: const Text('高级设置'),
+                  subtitle: const Text('动量窗口、价格时效、行业排除与复查'),
+                  children: [
+                    _field(
+                      _window,
+                      '动量窗口（日线观测间隔，2–250）',
+                      'quant-config-window',
+                      (v) => _integer(v, 2, 250),
+                    ),
+                    _field(
+                      _age,
+                      '价格最长距观察日（自然日，0–365）',
+                      'quant-config-age',
+                      (v) => _integer(v, 0, 365),
+                    ),
+                    _field(
+                      _excluded,
+                      '排除行业（顿号或逗号分隔）',
+                      'quant-config-excluded',
+                      (_) => null,
+                    ),
+                    _field(
+                      _reviewDays,
+                      '人工复查间隔（天）',
+                      'quant-config-review-days',
+                      (v) => _integer(v, 1, 3650),
+                    ),
+                    _field(
+                      _reviewCondition,
+                      '复查条件与人工操作约定',
+                      'quant-config-review-condition',
+                      _required,
+                    ),
+                  ],
                 ),
                 const Text(
                   '规则：阈值单位随因子显示。权重可为 0，但此规则必须用于筛选；全部权重为 0 时仅筛选，不评分或排名。',

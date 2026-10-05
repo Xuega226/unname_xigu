@@ -4,7 +4,8 @@
         android:label="未名溪谷"
         android:allowBackup="false"
         android:name="${applicationName}"
-        android:icon="@drawable/research_icon">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"

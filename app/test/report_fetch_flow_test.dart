@@ -1,3 +1,5 @@
+import 'support/simplified_navigation.dart';
+
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -137,6 +139,7 @@ Future<void> tap(
   Finder finder, {
   bool settle = true,
 }) async {
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   await tester.pump();
   await tester.tap(finder);

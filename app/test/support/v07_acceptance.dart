@@ -1,3 +1,5 @@
+import 'simplified_navigation.dart';
+
 // Real disk and production UI, with fictional evidence and no network/AI calls.
 import 'dart:io';
 import 'dart:convert';
@@ -39,6 +41,7 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await _settle(tester);
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   await tester.pump(const Duration(milliseconds: 300));
   await tester.tap(finder);
@@ -47,6 +50,7 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 
 Future<void> _edit(WidgetTester tester, String key, String text) async {
   final finder = find.byKey(ValueKey(key));
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.enterText(finder, text);

@@ -1,3 +1,5 @@
+import 'simplified_navigation.dart';
+
 // Fictional files and isolated directories only. The native chooser is injected;
 // parsing, workspace persistence, foreground polling and backup UI are real.
 import 'dart:convert';
@@ -253,6 +255,7 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await _settle(tester);
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   await tester.pump(const Duration(milliseconds: 300));
   await tester.tap(finder);

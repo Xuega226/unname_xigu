@@ -1,3 +1,5 @@
+import 'simplified_navigation.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -118,6 +120,7 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await _settle(tester);
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   // Navigation reuses its Scrollable; layout must complete after revealing
   // controls above a tall risk-chart page before computing a tap position.

@@ -319,6 +319,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
   late final documents = [...widget.documents];
   String message = '';
   bool busy = false;
+  int evidenceView = 0;
   Future<List<String>?> form(
     String title,
     List<InputField> fields,
@@ -355,6 +356,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
       if (mounted) {
         setState(() {
           if (saved) sources.add(s);
+          if (saved) evidenceView = 0;
           message = saved ? '资料已保存' : '保存失败，片段未应用';
         });
       }
@@ -448,6 +450,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
       if (mounted) {
         setState(() {
           if (saved) financials.add(f);
+          if (saved) evidenceView = 1;
           message = saved ? '财务记录已保存' : '保存失败，记录未应用';
         });
       }
@@ -473,6 +476,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
       setState(() {
         documents.add(result);
         sources.addAll(result.excerpts());
+        evidenceView = 0;
         message = '财报选页与原文件已保存';
       });
     }
@@ -494,6 +498,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
     if (result != null && mounted) {
       setState(() {
         financials.add(result);
+        evidenceView = 1;
         message = '已保存人工核验的财务候选值';
       });
     }
@@ -519,6 +524,7 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
     );
     if (saved != null && mounted) {
       setState(() {
+        evidenceView = 0;
         for (final document in saved) {
           if (!documents.any((d) => d.id == document.id)) {
             documents.add(document);
@@ -552,6 +558,103 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
     }
   }
 
+  Widget documentTile(ReportDocument document) => Card(
+    child: ExpansionTile(
+      title: Text(document.fileName),
+      subtitle: Text(
+        '${document.period} · ${document.pages.length} 页选页 · ${document.importedAt.substring(0, 10)}',
+      ),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (document.origin != null) ...[
+          Text(
+            '巨潮公告 ${document.announcementId} · ${document.origin!.exchange} ${document.origin!.code} · ${document.origin!.isRevision ? '修订版' : '原披露'}',
+          ),
+          SelectableText(
+            '披露 ${document.origin!.disclosedAt} · 下载出处：${document.origin!.downloadUrl}',
+          ),
+        ],
+        SelectableText('SHA-256：${document.sha256}'),
+        Wrap(
+          spacing: 8,
+          children: [
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () => readReport(
+                      context,
+                      document,
+                      widget.files,
+                      widget.importer,
+                    ),
+              child: const Text('查看原页与选页原文'),
+            ),
+            TextButton(
+              onPressed: busy ? null : () => relink(document),
+              child: const Text('重新关联原 PDF'),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget sourceTile(SourceExcerpt s) => ExpansionTile(
+    tilePadding: EdgeInsets.zero,
+    title: Text(s.title),
+    subtitle: Text('${s.period} · ${s.disclosedAt} · ${s.page} · ${s.unit}'),
+    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SelectableText('来源 ID：${s.id}'),
+      if (s.documentId != null)
+        OutlinedButton(
+          onPressed: busy
+              ? null
+              : () => readReport(
+                  context,
+                  documents.singleWhere((d) => d.id == s.documentId),
+                  widget.files,
+                  widget.importer,
+                  pageNumber: s.pageNumber,
+                ),
+          child: const Text('定位 PDF 原页'),
+        ),
+      SelectableText(
+        '${s.url.isEmpty ? '本地 PDF，原文及文件校验信息已保留' : s.url}\n\n${s.text}',
+      ),
+    ],
+  );
+
+  Widget financialTile(FinancialRecord f) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${f.start} 至 ${f.end} · ${f.unit}',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          Text('${f.scope} · ${f.basis} · 披露 ${f.disclosedAt}'),
+          Text('营收 ${amount(f.revenue)} · 扣非净利 ${amount(f.adjustedProfit)}'),
+          Text('经营现金流 ${amount(f.operatingCash)}'),
+          Text('期末现金 ${amount(f.cash)} · 有息负债 ${amount(f.debt)}'),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('来源与核验依据'),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SelectableText(
+                '来源 [${f.sourceId}]\n${f.evidence.entries.map((e) => '${FinancialRecord.labels[FinancialRecord.metrics.indexOf(e.key)]}：[${e.value.sourceId}]「${e.value.quote}」').join('\n')}',
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text('${widget.study.name} · 资料与财务'),
@@ -562,7 +665,28 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('金额缺失显示“资料不足”。原文片段不代表已自动核验，公司名称、报告期间及数字仍需对照公告。'),
+            const Text('1 添加资料 → 2 核验财务 → 3 用于研究'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('资料原文'),
+                  selected: evidenceView == 0,
+                  onSelected: busy
+                      ? null
+                      : (_) => setState(() => evidenceView = 0),
+                ),
+                ChoiceChip(
+                  label: const Text('财务核验'),
+                  selected: evidenceView == 1,
+                  onSelected: busy
+                      ? null
+                      : (_) => setState(() => evidenceView = 1),
+                ),
+              ],
+            ),
             if (widget.specialIndustry)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
@@ -575,90 +699,43 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
             if (busy) const LinearProgressIndicator(),
             if (!widget.allowAI)
               const Text('演示工作区仅供体验。导入真实财报和调用 AI 前，请新建空白工作区。'),
-            for (final document in documents)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        document.fileName,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        '${document.period} · ${document.pages.length} 页选页 · ${document.importedAt.substring(0, 10)}',
-                      ),
-                      if (document.origin != null) ...[
-                        Text(
-                          '巨潮公告 ${document.announcementId} · ${document.origin!.exchange} ${document.origin!.code} · ${document.origin!.isRevision ? '修订版' : '原披露'}',
-                        ),
-                        SelectableText(
-                          '披露 ${document.origin!.disclosedAt} · 下载出处：${document.origin!.downloadUrl}',
-                        ),
-                      ],
-                      SelectableText('SHA-256：${document.sha256}'),
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          TextButton(
-                            onPressed: busy
-                                ? null
-                                : () => readReport(
-                                    context,
-                                    document,
-                                    widget.files,
-                                    widget.importer,
-                                  ),
-                            child: const Text('查看原页与选页原文'),
-                          ),
-                          TextButton(
-                            onPressed: busy ? null : () => relink(document),
-                            child: const Text('重新关联原 PDF'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+            const SizedBox(height: 12),
+            if (evidenceView == 0) ...[
+              Text('PDF ${documents.length} 份 · 原文 ${sources.length} 段'),
+              const Text('先添加报告或公告，再核验需要用于研究的财务数字。'),
+              for (final document in documents) documentTile(document),
+              for (final s in sources) sourceTile(s),
+              if (sources.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('尚无原始资料片段。点击“添加资料”开始。'),
                 ),
-              ),
-            for (final s in sources)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: Text(s.title),
-                subtitle: Text(
-                  '${s.period} · ${s.disclosedAt} · ${s.page} · ${s.unit}\n[${s.id}]',
-                ),
+            ] else ...[
+              const Text('金额缺失显示“资料不足”。公司名称、报告期间及数字仍需对照公告；添加原文不代表已核验。'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  if (s.documentId != null)
-                    OutlinedButton(
-                      onPressed: busy
-                          ? null
-                          : () => readReport(
-                              context,
-                              documents.singleWhere(
-                                (d) => d.id == s.documentId,
-                              ),
-                              widget.files,
-                              widget.importer,
-                              pageNumber: s.pageNumber,
-                            ),
-                      child: const Text('定位 PDF 原页'),
-                    ),
-                  SelectableText(
-                    '${s.url.isEmpty ? '本地 PDF，原文及文件校验信息已保留' : s.url}\n\n${s.text}',
+                  OutlinedButton(
+                    onPressed: busy ? null : financial,
+                    child: const Text('核对财务字段'),
+                  ),
+                  TextButton(
+                    onPressed: busy || !widget.allowAI || sources.isEmpty
+                        ? null
+                        : extract,
+                    child: const Text('AI 提取财务候选值'),
                   ),
                 ],
               ),
-            const SizedBox(height: 16),
-            for (final f in financials)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: SelectableText(
-                  '${f.start} 至 ${f.end} · 单位：${f.unit} · ${f.scope} · ${f.basis}\n披露 ${f.disclosedAt} · 来源 [${f.sourceId}]\n营收 ${amount(f.revenue)} · 扣非净利 ${amount(f.adjustedProfit)}\n经营现金流 ${amount(f.operatingCash)} · 期末现金 ${amount(f.cash)} · 有息负债 ${amount(f.debt)}\n${f.evidence.entries.map((e) => '${FinancialRecord.labels[FinancialRecord.metrics.indexOf(e.key)]}：[${e.value.sourceId}]「${e.value.quote}」').join('\n')}',
+              if (financials.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('尚无已核验财务记录。选择原文后，核对字段或人工确认 AI 候选值。'),
                 ),
-              ),
-            if (sources.isEmpty) const Text('尚无原始资料片段'),
+              for (final f in financials) financialTile(f),
+            ],
           ],
         ),
       ),
@@ -668,26 +745,54 @@ class _EvidenceDialogState extends State<EvidenceDialog> {
         onPressed: busy ? null : () => Navigator.pop(context),
         child: const Text('关闭'),
       ),
-      OutlinedButton(
-        onPressed: busy ? null : financial,
-        child: const Text('核对财务字段'),
-      ),
-      OutlinedButton(
-        onPressed: busy || !widget.allowAI || sources.isEmpty ? null : extract,
-        child: const Text('AI 提取财务候选值'),
-      ),
-      OutlinedButton(
-        onPressed: busy || !widget.allowAI ? null : importPdf,
-        child: const Text('导入财报 PDF'),
-      ),
-      OutlinedButton.icon(
-        onPressed: busy || !widget.allowAI ? null : fetchReports,
-        icon: const Icon(Icons.download_outlined),
-        label: const Text('自动查找年报'),
-      ),
-      FilledButton(
-        onPressed: busy ? null : source,
-        child: const Text('添加原文片段'),
+      PopupMenuButton<String>(
+        enabled: !busy,
+        tooltip: '添加资料',
+        onSelected: (action) async {
+          switch (action) {
+            case 'fetch':
+              await fetchReports();
+            case 'pdf':
+              await importPdf();
+            case 'source':
+              await source();
+          }
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(
+            value: 'fetch',
+            enabled: widget.allowAI,
+            child: const Text('自动查找年报'),
+          ),
+          PopupMenuItem(
+            value: 'pdf',
+            enabled: widget.allowAI,
+            child: const Text('导入财报 PDF'),
+          ),
+          const PopupMenuItem(value: 'source', child: Text('添加原文片段')),
+        ],
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: busy
+                ? Theme.of(context).colorScheme.onSurface.withValues(alpha: .12)
+                : Theme.of(context).colorScheme.primary,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add, color: Theme.of(context).colorScheme.onPrimary),
+              const SizedBox(width: 8),
+              Text(
+                '添加资料',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     ],
   );

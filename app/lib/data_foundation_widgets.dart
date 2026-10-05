@@ -579,12 +579,11 @@ class _QuantDataPanelState extends State<QuantDataPanel> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '量化数据基础',
+                  '历史行情',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-                const Text(
-                  '历史日线与资金流水独立保存；不会自动改变持仓或公司研究。历史价格只支持未复权，资金覆盖之前仅保留累计汇总。',
-                ),
+                const Text('未复权日线独立保存，不改变持仓价格。'),
+                Text('${data.priceHistory.length} 个历史序列'),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -603,36 +602,47 @@ class _QuantDataPanelState extends State<QuantDataPanel> {
                 ),
                 if (data.priceHistory.isEmpty)
                   const Text('尚无历史日线。资料不足时不会计算缺失因子。'),
-                for (final h in data.priceHistory)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _summary(h),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            TextButton(
-                              onPressed: () => _export(h),
-                              child: const Text('导出 JSON'),
-                            ),
-                            TextButton(
-                              onPressed: () => _confirmSave(
-                                '删除历史序列？',
-                                '${h.symbol} 的历史日线将移除，持仓和研究保持不变。',
-                                data.copyWith(
-                                  priceHistory: data.priceHistory
-                                      .where((v) => v.id != h.id)
-                                      .toList(),
-                                ),
-                              ),
-                              child: const Text('删除历史'),
-                            ),
-                          ],
-                        ),
-                      ],
+                if (data.priceHistory.isNotEmpty)
+                  ExpansionTile(
+                    key: const Key('history-details'),
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('历史行情明细'),
+                    subtitle: Text(
+                      '${data.priceHistory.length} 个序列 · 查看来源、导出或删除',
                     ),
+                    children: [
+                      for (final h in data.priceHistory)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _summary(h),
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  TextButton(
+                                    onPressed: () => _export(h),
+                                    child: const Text('导出 JSON'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => _confirmSave(
+                                      '删除历史序列？',
+                                      '${h.symbol} 的历史日线将移除，持仓和研究保持不变。',
+                                      data.copyWith(
+                                        priceHistory: data.priceHistory
+                                            .where((v) => v.id != h.id)
+                                            .toList(),
+                                      ),
+                                    ),
+                                    child: const Text('删除历史'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
               ],
             ),
@@ -672,68 +682,79 @@ class _QuantDataPanelState extends State<QuantDataPanel> {
                     child: const Text('新增资金流水'),
                   ),
                   if (entries.isEmpty) const Text('覆盖起点以后尚无逐笔记录。'),
-                  for (final e in entries.skip(page * 20).take(20))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${e.date} · ${e.kind == CashFlowKind.deposit ? '转入' : '转出'} ${e.amount.toStringAsFixed(2)} 元 · ${e.source}',
+                  if (entries.isNotEmpty)
+                    ExpansionTile(
+                      key: const Key('funding-details'),
+                      tilePadding: EdgeInsets.zero,
+                      title: const Text('资金流水明细'),
+                      subtitle: Text('${entries.length} 条记录 · 查看、编辑或删除'),
+                      children: [
+                        for (final e in entries.skip(page * 20).take(20))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${e.date} · ${e.kind == CashFlowKind.deposit ? '转入' : '转出'} ${e.amount.toStringAsFixed(2)} 元 · ${e.source}',
+                                ),
+                                Wrap(
+                                  spacing: 8,
+                                  children: [
+                                    TextButton(
+                                      key: Key('funding-edit-${e.id}'),
+                                      onPressed: () => _editFlow(e),
+                                      child: const Text('编辑流水'),
+                                    ),
+                                    TextButton(
+                                      key: Key('funding-delete-${e.id}'),
+                                      onPressed: () {
+                                        final updated = ledger.copyWith(
+                                          entries: ledger.entries
+                                              .where((v) => v.id != e.id)
+                                              .toList(),
+                                        );
+                                        _confirmSave(
+                                          '确认删除资金流水？',
+                                          '将删除 ${e.date} 的 ${e.amount.toStringAsFixed(2)} 元流水，累计本金同步更新，账户现金不变。',
+                                          data.copyWith(
+                                            funding: updated,
+                                            deposits: updated.deposits,
+                                            withdrawals: updated.withdrawals,
+                                          ),
+                                        );
+                                      },
+                                      child: const Text('删除流水'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
+                        if (pages > 1)
                           Wrap(
                             spacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               TextButton(
-                                key: Key('funding-edit-${e.id}'),
-                                onPressed: () => _editFlow(e),
-                                child: const Text('编辑流水'),
+                                key: const Key('funding-previous'),
+                                onPressed: page > 0
+                                    ? () => setState(() => _page = page - 1)
+                                    : null,
+                                child: const Text('上一页'),
+                              ),
+                              Text(
+                                '${page + 1}/$pages · 共 ${entries.length} 条',
                               ),
                               TextButton(
-                                key: Key('funding-delete-${e.id}'),
-                                onPressed: () {
-                                  final updated = ledger.copyWith(
-                                    entries: ledger.entries
-                                        .where((v) => v.id != e.id)
-                                        .toList(),
-                                  );
-                                  _confirmSave(
-                                    '确认删除资金流水？',
-                                    '将删除 ${e.date} 的 ${e.amount.toStringAsFixed(2)} 元流水，累计本金同步更新，账户现金不变。',
-                                    data.copyWith(
-                                      funding: updated,
-                                      deposits: updated.deposits,
-                                      withdrawals: updated.withdrawals,
-                                    ),
-                                  );
-                                },
-                                child: const Text('删除流水'),
+                                key: const Key('funding-next'),
+                                onPressed: page < pages - 1
+                                    ? () => setState(() => _page = page + 1)
+                                    : null,
+                                child: const Text('下一页'),
                               ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                  if (pages > 1)
-                    Wrap(
-                      spacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        TextButton(
-                          key: const Key('funding-previous'),
-                          onPressed: page > 0
-                              ? () => setState(() => _page = page - 1)
-                              : null,
-                          child: const Text('上一页'),
-                        ),
-                        Text('${page + 1}/$pages · 共 ${entries.length} 条'),
-                        TextButton(
-                          key: const Key('funding-next'),
-                          onPressed: page < pages - 1
-                              ? () => setState(() => _page = page + 1)
-                              : null,
-                          child: const Text('下一页'),
-                        ),
                       ],
                     ),
                 ],

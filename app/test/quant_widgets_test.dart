@@ -163,6 +163,22 @@ class QuantHarnessState extends State<QuantHarness> {
 }
 
 Future<void> showQuantControl(WidgetTester tester, String key) async {
+  final group = key == 'quant-add-capital'
+      ? 'quant-capital-section'
+      : const [
+          'quant-config-window',
+          'quant-config-age',
+          'quant-config-excluded',
+          'quant-config-review-days',
+          'quant-config-review-condition',
+        ].contains(key)
+      ? 'quant-config-advanced'
+      : null;
+  if (group != null && find.byKey(ValueKey(key)).evaluate().isEmpty) {
+    await tester.ensureVisible(find.byKey(ValueKey(group)));
+    await tester.tap(find.byKey(ValueKey(group)));
+    await tester.pumpAndSettle();
+  }
   await tester.ensureVisible(find.byKey(ValueKey(key)));
   await tester.pumpAndSettle();
 }
@@ -184,6 +200,46 @@ Future<void> editQuantControl(
 }
 
 void main() {
+  testWidgets('默认展示状态与结果，参数说明和资料维护按需展开', (tester) async {
+    final key = GlobalKey<QuantHarnessState>();
+    final before = quantUiFixture();
+    await tester.pumpWidget(QuantHarness(key: key, initial: before));
+    expect(find.text('已核对并启用'), findsOneWidget);
+    expect(find.textContaining('最新年度所需字段'), findsWidgets);
+    expect(find.textContaining('综合分 = 100'), findsNothing);
+    expect(find.byKey(const ValueKey('quant-add-capital')), findsNothing);
+    expect(find.textContaining('至 2025-12-31：'), findsNothing);
+    await tapQuantControl(tester, 'quant-calculation-info');
+    expect(find.textContaining('综合分 = 100'), findsOneWidget);
+    await tapQuantControl(tester, 'quant-current-parameters');
+    expect(find.textContaining('确认时间'), findsOneWidget);
+    expect(key.currentState!.data.encode(), before.encode());
+    expect(key.currentState!.saves, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('折叠的高级设置有误时自动展开，错误参数不会保存', (tester) async {
+    final key = GlobalKey<QuantHarnessState>();
+    await tester.pumpWidget(QuantHarness(key: key, initial: quantUiFixture()));
+    await tapQuantControl(tester, 'quant-edit');
+    expect(find.byKey(const ValueKey('quant-config-window')), findsNothing);
+    await editQuantControl(tester, 'quant-config-window', '1');
+    await tester.ensureVisible(find.text('高级设置'));
+    await tester.tap(find.text('高级设置'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('quant-config-window')), findsNothing);
+    await tapQuantControl(tester, 'quant-config-save');
+    expect(find.byKey(const ValueKey('quant-config-window')), findsOneWidget);
+    expect(find.text('请输入 2 至 250 的整数'), findsOneWidget);
+    expect(find.text('请检查高级设置中标出的参数'), findsOneWidget);
+    expect(key.currentState!.saves, 0);
+    await editQuantControl(tester, 'quant-config-window', '20');
+    await tapQuantControl(tester, 'quant-config-save');
+    expect(key.currentState!.saves, 1);
+    expect(key.currentState!.data.quant.currentConfig!.confirmed, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('初始无规则，示例保存后仍未启用、不评分、不改资金研究', (tester) async {
     final key = GlobalKey<QuantHarnessState>();
     final before = quantUiFixture(configured: false);
@@ -298,6 +354,7 @@ void main() {
     expect(row.rules[1].value.value, -1.5);
     expect(row.rules[1].contribution, 0);
     await tester.pumpWidget(QuantHarness(initial: data));
+    await tapQuantControl(tester, 'quant-comparison');
     expect(find.textContaining('至 2025-12-31：-1.5 倍'), findsOneWidget);
     await tapQuantControl(tester, 'quant-details-SH:600001');
     expect(find.textContaining('经营现金流：-30 万元'), findsOneWidget);

@@ -1,3 +1,5 @@
+import 'simplified_navigation.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -171,6 +173,7 @@ Future<void> _settle(WidgetTester tester) async {
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await _settle(tester);
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
@@ -178,6 +181,7 @@ Future<void> _tap(WidgetTester tester, Finder finder) async {
 }
 
 Future<void> _enter(WidgetTester tester, Finder finder, String text) async {
+  await revealSimplifiedAction(tester, finder);
   await tester.ensureVisible(finder);
   await tester.enterText(finder, text);
   FocusManager.instance.primaryFocus?.unfocus();

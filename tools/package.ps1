@@ -25,6 +25,12 @@ Get-ChildItem -LiteralPath "$($taskRuntime.FullName)/x64/Microsoft.VC143.CRT" -F
     Copy-Item -LiteralPath $_.FullName -Destination $taskBundle -Force
 }
 Copy-Item -LiteralPath "$taskRoot/README.md" -Destination "$taskBundle/README.md" -Force
+if (Test-Path -LiteralPath "$taskRoot/assets/branding") {
+    New-Item -ItemType Directory -Path "$taskBundle/assets/branding" -Force | Out-Null
+    Get-ChildItem -LiteralPath "$taskRoot/assets/branding" -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination "$taskBundle/assets/branding" -Force
+    }
+}
 New-Item -ItemType Directory -Path "$taskBundle/docs" -Force | Out-Null
 $taskSourceRef = (& git -C $taskRoot rev-parse --abbrev-ref HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Source reference could not be resolved.' }
@@ -56,9 +62,10 @@ Windows：完整解压后双击 weiming_xigu.exe，保留 DLL 与 data 目录。
 Android：安装 weiming-xigu-android-v$taskVersion.apk，可覆盖相同测试签名的旧包；卸载前先导出备份。
 
 从默认演示体验；真实研究请在菜单新建空白工作区，再添加真实自选。
+研究卡先显示摘要，完整内容点「阅读完整研究」，AI 草稿、复查与版本在「更多研究操作」；操作说明见 docs/ui-simplification.md。
 DeepSeek 密钥在「数据与设置 → DeepSeek 本地设置」录入。密钥不会放入研究备份，换设备需重新设置。
 模型草稿需要原始资料片段、引用检查和人工确认；当前安装包没有预置密钥。
-资料与财务中可按沪深 A 股代码自动查询近三年年报，批量下载后逐份选页、核对单位并确认保存；失败项可重试。
+资料与财务的「添加资料」菜单可按沪深 A 股代码自动查询近三年年报，批量下载后逐份选页、核对单位并确认保存；失败项可重试。
 修订版请自行核对选择，已导入公告和相同 PDF 跳过，旧资料不覆盖；也可手动导入文字 PDF、核验 AI 财务候选。
 JSON 备份携带选页原文和公告出处，原 PDF 需单独复制并重新关联。北交所自动获取、季报批量获取与 OCR 尚未实现。
 研究卡可查看多年度变化、保存复查计划、对照历史研究版本。

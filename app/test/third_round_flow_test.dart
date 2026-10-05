@@ -1,3 +1,5 @@
+import 'support/simplified_navigation.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -40,6 +42,7 @@ class ChosenPdf extends PdfImportService {
 Future<void> tapVisible(WidgetTester tester, Finder f) async {
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pumpAndSettle();
+  await revealSimplifiedAction(tester, f);
   await tester.ensureVisible(f);
   await tester.pumpAndSettle();
   await tester.tap(f);
@@ -47,6 +50,7 @@ Future<void> tapVisible(WidgetTester tester, Finder f) async {
 }
 
 Future<void> enterVisible(WidgetTester tester, Finder f, String text) async {
+  await revealSimplifiedAction(tester, f);
   await tester.ensureVisible(f);
   await tester.enterText(f, text);
   FocusManager.instance.primaryFocus?.unfocus();

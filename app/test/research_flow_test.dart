@@ -8,6 +8,7 @@ import 'package:lianghua_assistant/research.dart';
 import 'package:lianghua_assistant/services.dart';
 import 'package:lianghua_assistant/storage.dart';
 import 'research_test.dart' show testSource, draftJson, FakeTransport;
+import 'support/simplified_navigation.dart';
 
 void main() {
   for (final linkedBy in ['source', 'watchlist']) {
@@ -103,6 +104,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('公司研究').last);
       await tester.pumpAndSettle();
+      await revealSimplifiedAction(tester, find.text('生成 AI 草稿'));
       await tester.ensureVisible(find.text('生成 AI 草稿'));
       await tester.tap(find.text('生成 AI 草稿'));
       await tester.pumpAndSettle();
